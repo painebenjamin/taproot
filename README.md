@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://github.com/user-attachments/assets/f965fd42-2a95-4552-9b5f-465fc4037a91" width="500" /><br />
+<img src="https://github.com/user-attachments/assets/f965fd42-2a95-4552-9b5f-465fc4037a91" width="650" /><br />
 <em>An open source real-time AI inference engine for seamless scaling</em>
 </div>
 
@@ -10,6 +10,11 @@
 ```sh
 pip install taproot
 ```
+
+Some additional packages are available to install with the square-bracket syntax (e.g. `pip install taproot[a,b,c]`), these are:
+- **tools** - Additional packages for LLM tools like DuckDuckGo Search, BeautifulSoup (for web scraping), etc.
+- **console** - Additional packages for prettifying console output.
+- **av** - Additional packages for reading and writing video.
 
 ## Installing Tasks
 

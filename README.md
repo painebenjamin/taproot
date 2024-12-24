@@ -5,6 +5,14 @@
 
 # This code will be released soon!
 
+# About
+
+Taproot is a seamlessly scalable AI/ML inference engine designed for deployment across hardware clusters with disparate capabilities.
+
+## Why Taproot?
+
+Most AI/ML inference engines are built for either large-scale cloud infrastructures or constrained edge devices - Taproot is designed for **medium-scale deployments**, offering flexible and distributed on-premise or PAYG setups. It efficiently uses older or consumer-grade hardware, making it suitable for small networks or ad-hoc clusters, without relying on centralized, hyperscale architectures.
+
 # Installation
 
 ```sh
@@ -116,7 +124,7 @@ Returns:
 
 ### Invoking Tasks
 
-Run `taproot invoke` to run any supported task from the command line. All parameters to the task can be passed as flags to the call using kebab-case, e.g.:
+Run `taproot invoke` to run any task from the command line. All parameters to the task can be passed as flags to the call using kebab-case, e.g.:
 
 ```sh
 taproot invoke image-generation:stable-diffusion-xl \
@@ -176,7 +184,7 @@ with Tap.local() as tap:
 
 Taproot uses a three-roled cluster structure:
 1. **Overseers** are entry points into clusters, routing requests to one or more dispatchers.
-2. **Dispatchers** are machines capable of executing tasks by spawning executors.
+2. **Dispatchers** are machines capable of running tasks by spawning executors.
 3. **Executors** are servers ready to execute a task.
 
 The simplest way to run a server is to run an overseer simultaneously with a local dispatcher like so:

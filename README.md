@@ -1,6 +1,6 @@
 <div align="center">
-<img src="https://github.com/user-attachments/assets/f965fd42-2a95-4552-9b5f-465fc4037a91" /><br />
-<em><strong>TAPROOT</strong> - an open source real-time AI inference engine with seamless scaling</em>
+<img src="https://github.com/user-attachments/assets/f965fd42-2a95-4552-9b5f-465fc4037a91" width="500" /><br />
+<em>An open source real-time AI inference engine for seamless scaling</em>
 </div>
 
 # This code will be released soon!

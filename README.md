@@ -26,7 +26,9 @@ taproot install image-generation:stable-diffusion-xl
 
 # Usage
 
-## Introspecting Tasks
+## Command-Line
+
+### Introspecting Tasks
 
 From the command line, execute `taproot tasks` to see all tasks and their availability status, or `taproot info` for individual task information. For example:
 
@@ -112,7 +114,30 @@ Returns:
     ImageResultType
 ```
 
-## Invoking Tasks
+### Invoking Tasks
+
+Run `taproot invoke` to run any supported task from the command line. All parameters to the task can be passed as flags to the call using kebab-case, e.g.:
+
+```sh
+taproot invoke image-generation:stable-diffusion-xl \
+    --prompt "a photograph of a golden retriever at the park" \
+    --negative-prompt "fall, autumn, blurry, out-of-focus" \
+    --seed 12345
+Loading task.
+100%|███████████████████████████████████████████████████████████████████████████| 7/7 [00:03<00:00,  2.27it/s]
+Task loaded in 4.0 s.
+Invoking task.
+100%|█████████████████████████████████████████████████████████████████████████| 20/20 [00:04<00:00,  4.34it/s]
+Task invoked in 6.5 s. Result:
+8940aa12-66a7-4233-bfd6-f19da339b71b.png
+```
+
+<div align="center">
+<a href="https://github.com/user-attachments/assets/9820ffc9-dd93-4d9d-b3c7-211f6c7a3264" target="_blank"><img src="https://github.com/user-attachments/assets/9820ffc9-dd93-4d9d-b3c7-211f6c7a3264" width="512" height="512" /></a><br />
+<em>Click image for full-size</em>
+</div>
+
+## Python
 
 ### Direct Task Usage
 
@@ -141,8 +166,7 @@ Also shows asynchronous usage.
 ```py
 import asyncio
 from taproot import Tap
-tap = Tap()
-with tap.local() as tap:
+with Tap.local() as tap:
     loop = asyncio.get_event_loop()
     result = loop.run_until_complete(tap("image-generation", model="stable-diffusion-xl", prompt="Hello, world!"))
     result.save("./output.png")

@@ -13,6 +13,24 @@ Taproot is a seamlessly scalable AI/ML inference engine designed for deployment 
 
 Most AI/ML inference engines are built for either large-scale cloud infrastructures or constrained edge devices - Taproot is designed for **medium-scale deployments**, offering flexible and distributed on-premise or PAYG setups. It efficiently uses older or consumer-grade hardware, making it suitable for small networks or ad-hoc clusters, without relying on centralized, hyperscale architectures.
 
+## Available Models
+
+There are more than 150 models available across 18 task categories. See the [Task Catalog](#task-catalog) for the complete list, licenses, requirements and citations. Despite the large number of models available, there are many more yet to be added - if you're looking for a particular enhancement, don't hesitate to make an issue on this repository to request it.
+
+### Roadmap
+
+1. IP Adapter Models for Diffusers Image Generation Pipelines
+2. ControlNet Models for Diffusers Image Generation Pipelines
+3. Additional quantization backends for large models
+    - Currently BitsandBytes (Int8/NF4) and GGUF (through llama.cpp) are supported with pre-quantized checkpoints available.
+    - FP8 support through Optimum Quanto and custom kernels is in development.
+4. Improved multi-GPU support
+    - This is currently supported through manual configuration, but usability can be improved.
+5. Additional annotators/detectors for image and video
+    - E.g. Marigold, SAM2
+6. Additional audio generation models
+    - E.g. Stable Audio, AudioLDM, MusicGen
+
 # Installation
 
 ```sh

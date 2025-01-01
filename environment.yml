@@ -1,0 +1,35 @@
+name: taproot
+channels:
+  - defaults
+  - nvidia/label/cuda-12.1
+  - conda-forge
+dependencies:
+  - python=3.10.11
+  - cuda-toolkit=12.1.1
+  - ffmpeg=6.1.1
+  - opencv=4.9.0
+  - openh264
+  - pip
+  - pip:
+    - async-lru
+    - beautifulsoup4
+    - click
+    - dbgpu[fuzz]
+    - docstring_parser
+    - duckduckgo_search
+    - httptools
+    - moviepy<2.0
+    - msgpack
+    - nest_asyncio
+    - omegaconf
+    - packaging
+    - pillow
+    - psutil
+    - pyav
+    - pycryptodome
+    - pytz
+    - requests
+    - tabulate
+    - termcolor
+    - tqdm
+    - websockets

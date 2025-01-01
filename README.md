@@ -2,6 +2,15 @@
 <img src="https://github.com/user-attachments/assets/f965fd42-2a95-4552-9b5f-465fc4037a91" width="650" /><br />
 <em>An open source real-time AI inference engine for seamless scaling</em>
 </div>
+<hr/>
+<p align="center">
+    <img src="https://img.shields.io/static/v1?label=painebenjamin&message=taproot&color=234b0e&logo=github" alt="painebenjamin - taproot">
+    <img src="https://img.shields.io/github/stars/painebenjamin/taproot?style=social" alt="stars - taproot">
+    <img src="https://img.shields.io/github/forks/painebenjamin/taproot?style=social" alt="forks - taproot"><br />
+    <a href="https://github.com/painebenjamin/taproot/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache-234b0e" alt="License"></a>
+    <a href="https://pypi.org/project/enfugue"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/taproot?color=234b0e"></a>
+    <a href="https://pypi.org/project/enfugue"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/taproot?logo=python&logoColor=white&color=234b0e"></a>
+</p>
 
 # About
 

@@ -23,7 +23,7 @@ There are more than 150 models available across 18 task categories. See the [Tas
 2. ControlNet Models for Diffusers Image Generation Pipelines
 3. Additional quantization backends for large models
     - Currently BitsandBytes (Int8/NF4) and GGUF (through llama.cpp) are supported with pre-quantized checkpoints available.
-    - FP8 support through Optimum Quanto and custom kernels is in development.
+    - FP8 support through Optimum-Quanto, TorchAO and custom kernels is in development.
 4. Improved multi-GPU support
     - This is currently supported through manual configuration, but usability can be improved.
 5. Additional annotators/detectors for image and video

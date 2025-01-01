@@ -3,8 +3,6 @@
 <em>An open source real-time AI inference engine for seamless scaling</em>
 </div>
 
-# This code will be released soon!
-
 # About
 
 Taproot is a seamlessly scalable AI/ML inference engine designed for deployment across hardware clusters with disparate capabilities.

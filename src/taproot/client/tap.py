@@ -3,7 +3,20 @@ from __future__ import annotations
 import asyncio
 import traceback
 
-from typing import Any, Optional, Union, Literal, Iterator, Literal, List, Dict, Tuple, Callable, Coroutine, TYPE_CHECKING
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    Iterator,
+    List,
+    Literal,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    TYPE_CHECKING
+)
 
 from contextlib import contextmanager, ExitStack
 
@@ -17,6 +30,8 @@ from ..util import (
     get_parameter_metadata,
     get_payload_id,
     parse_address,
+    is_absolute_address,
+    get_absolute_address_from_relative,
     generate_id,
     logger,
 )
@@ -586,16 +601,14 @@ class Tap(ConfigMixin):
         Gets an executor client.
         """
         client = Client()
-        if (address.startswith("/") or address.startswith(".")) and self.remote_scheme is not None:
-            # Relative path, use the remote overseer host details
-            client.scheme = self.remote_scheme
-            client.path = address
-            if self.remote_host:
-                client.host = self.remote_host
-            if self.remote_port:
-                client.port = self.remote_port
+        if not is_absolute_address(address) and self.remote_address is not None:
+            client.address = get_absolute_address_from_relative(
+                absolute_address=self.remote_address,
+                relative_address=address,
+            )
         else:
             client.address = address
+
         if client.use_encryption:
             if use_local_encryption_config and self.config.local and self.config.local.encryption:
                 client.certfile = self.config.local.encryption.certfile
@@ -605,6 +618,7 @@ class Tap(ConfigMixin):
                 client.certfile = self.config.remote.encryption.certfile
                 client.encryption_key = self.config.remote.encryption.encryption_key
                 client.encryption_use_aesni = self.config.remote.encryption.encryption_use_aesni
+
         return client
 
     def _get_remote_client(self) -> Client:
@@ -828,6 +842,7 @@ class Tap(ConfigMixin):
             "wait_for_result": wait_for_result,
             "return_metadata": True
         }
+
         if continuation:
             task_payload["continuation"] = continuation
             task_payload["overseer"] = self.remote_address

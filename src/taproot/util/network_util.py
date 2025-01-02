@@ -44,6 +44,8 @@ __all__ = [
     "unpack_control_message",
     "parse_address",
     "format_address",
+    "is_absolute_address",
+    "get_absolute_address_from_relative",
     "generate_temp_key_and_cert",
     "find_free_unix_socket",
     "find_free_memory_port",
@@ -481,6 +483,38 @@ def format_address(address: AddressDict) -> str:
     path = address["path"] or ""
     host_port = f"{address['host']}:{address['port']}" if address["port"] else address["host"]
     return f"{base}{host_port}{path}"
+
+def is_absolute_address(address: str) -> bool:
+    """
+    Determine if an address is absolute.
+    """
+    return re.match(r"^\w+\:\/\/", address) is not None
+
+def get_absolute_address_from_relative(
+    absolute_address: str,
+    relative_address: str,
+    up_levels: int=1
+) -> str:
+    """
+    Get an absolute address from a relative address.
+    """
+    if not relative_address:
+        return absolute_address
+
+    assert is_absolute_address(absolute_address), "Absolute address must be an absolute address"
+    assert up_levels > 0, "Up levels must be greater than 0"
+
+    address_parts = parse_address(absolute_address)
+    address_path = address_parts["path"] or ""
+    address_path_parts = address_path.strip(" /").split("/")
+    target_path_parts = address_path_parts[:-up_levels] + [relative_address.strip(" /")]
+
+    return format_address({
+        "scheme": address_parts["scheme"],
+        "host": address_parts["host"],
+        "port": address_parts["port"],
+        "path": "/" + "/".join(target_path_parts)
+    })
 
 ALL_MEMORY_PORTS = set(range(65536))
 def find_free_memory_port() -> int:

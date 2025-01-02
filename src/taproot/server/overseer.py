@@ -8,9 +8,14 @@ from contextlib import contextmanager
 from omegaconf.basecontainer import BaseContainer
 
 from ..payload import *
-from ..util import logger, generate_id, format_address
 from ..client import Client, DispatcherConfigClient
 from ..config import OverseerConfig
+from ..util import (
+    logger,
+    generate_id,
+    is_absolute_address,
+    get_absolute_address_from_relative,
+)
 
 from .config import ConfigServer, ConfigType
 
@@ -289,14 +294,12 @@ class Overseer(ConfigServer):
             timeout=self.dispatcher_prepare_timeout,
         )
 
-        if resolve and executor_address_payload["address"].startswith("/"):
+        if resolve and not is_absolute_address(executor_address_payload["address"]):
             # Resolve relative address to dispatcher address
             logger.debug(f"Resolving relative address {executor_address_payload['address']} to dispatcher address.")
-            executor_address_payload["address"] = format_address({
-                "scheme": dispatcher.scheme,
-                "host": dispatcher.host,
-                "port": dispatcher.port,
-                "path": executor_address_payload["address"],
-            })
+            executor_address_payload["address"] = get_absolute_address_from_relative(
+                absolute_address=dispatcher.address,
+                relative_address=executor_address_payload["address"],
+            )
 
         return executor_address_payload

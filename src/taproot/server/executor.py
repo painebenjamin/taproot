@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import asyncio
 
 from typing import (
@@ -24,8 +23,8 @@ from ..config import ExecutorConfig
 from ..exceptions import CapacityExceededError
 from ..util import (
     logger,
-    parse_address,
-    format_address,
+    is_absolute_address,
+    get_absolute_address_from_relative,
     generate_id,
     get_metadata,
     get_continuation_depth,
@@ -190,17 +189,12 @@ class Executor(ConfigServer):
             executor_payload.pop("result_parameters", None) # Remove the result parameter map if present
 
             # If the address is just a path, make it relative to the overseer
-            if not re.match(r"^\w+://", executor_target["address"]):
-                address_parts = parse_address(overseer)
-                # Replace last part of path with the executor target address
-                target_address = executor_target["address"]
-                if target_address.startswith("/"):
-                    target_address = target_address[1:]
-                address_path = address_parts.get("path", None)
-                if address_path is None:
-                    address_path = ""
-                address_parts["path"] = address_path.rsplit("/", 1)[0] + "/" + target_address
-                executor_target["address"] = format_address(address_parts)
+            if not is_absolute_address(executor_target["address"]):
+                executor_target["address"] = get_absolute_address_from_relative(
+                    absolute_address=overseer,
+                    relative_address=executor_target["address"],
+                    up_levels=1
+                )
 
             # Kick off the continuation
             self._send_continuation_payload(

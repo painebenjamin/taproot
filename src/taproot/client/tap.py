@@ -10,14 +10,12 @@ from typing import (
     Dict,
     Iterator,
     List,
-    Literal,
-    Literal,
     Optional,
     Tuple,
     Union,
     TYPE_CHECKING
 )
-
+from typing_extensions import Literal
 from contextlib import contextmanager, ExitStack
 
 from ..constants import *
@@ -40,6 +38,8 @@ from .base import Client
 
 if TYPE_CHECKING:
     from ..server import Dispatcher
+
+__all__ = ["Tap"]
 
 class Tap(ConfigMixin):
     """

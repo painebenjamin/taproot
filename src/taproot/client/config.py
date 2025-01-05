@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, Union, Optional
+from typing import Union, Optional
+from typing_extensions import Literal
 
 from ..config import *
 from .base import Client

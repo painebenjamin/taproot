@@ -181,18 +181,18 @@ class DiffusersTextToVideoTask(DiffusersPipelineTask):
 
         if image is not None:
             image = to_bchw_tensor(image, num_channels=3).to(dtype=dtype, device=self.device)
-            image = scale_tensor(image, round_to_nearest=8).clamp(0., 1.)
+            image = scale_tensor(image, round_to_nearest=16).clamp(0., 1.)
         if video is not None:
             video = to_bchw_tensor(video, num_channels=3).to(dtype=dtype, device=self.device)
-            video = scale_tensor(video, round_to_nearest=8).clamp(0., 1.)
+            video = scale_tensor(video, round_to_nearest=16).clamp(0., 1.)
         if mask_image is not None:
             mask_image = to_bchw_tensor(mask_image, num_channels=1).to(dtype=dtype, device=self.device)
-            mask_image = scale_tensor(mask_image, round_to_nearest=8).clamp(0., 1.)
+            mask_image = scale_tensor(mask_image, round_to_nearest=16).clamp(0., 1.)
         if control_image is not None:
             control_image = {
                 key: scale_tensor(
                     to_bchw_tensor(value, num_channels=3).to(dtype=dtype, device=self.device),
-                    round_to_nearest=8
+                    round_to_nearest=16
                 ).clamp(0., 1.)
                 for key, value in control_image.items()
             }

@@ -184,6 +184,8 @@ def audio_to_bct_tensor(
         waveform = waveform.float() / 32768.0
     elif waveform.dtype is torch.int8:
         waveform = (waveform.float() - 128) / 128.0
+    elif waveform.dtype is not torch.float32:
+        waveform = waveform.float()
 
     if sample_rate is None:
         raise ValueError("No sample rate provided and could not infer from input data. Please provide a sample rate.")
@@ -271,6 +273,7 @@ def normalize_loudness(
     """
     import torch
     import torchaudio
+    wav = wav.float()
     energy = wav.pow(2).mean().sqrt().item()
     if energy < energy_floor:
         return wav

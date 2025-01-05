@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import re
-
 from typing import Optional, Dict, Any, cast, TYPE_CHECKING
 from typing_extensions import Literal
 
-from taproot.util import audio_to_bct_tensor, seed_everything
-
+from taproot.util import (
+    audio_to_bct_tensor,
+    seed_everything,
+    normalize_text
+)
 from taproot.constants import *
 from taproot.tasks.base import Task
 
@@ -124,53 +125,6 @@ class XTTS2SpeechSynthesis(Task):
             output_format="float"
         )[0]
 
-    def format_prompt(
-        self,
-        text: str
-    ) -> str:
-        """
-        Formats a prompt for the XTTS model.
-
-        There are some quirks with how the model pronounces certain formats of text.
-        This method attempts to fix some of these issues.
-        """
-        # Look for numbers that lead with a '-' and replace with 'negative'
-        text = re.sub(r"([^a-zA-Z0-9])-(\d+)", r"\1negative \2", text)
-        # Look for degrees F, replaces with 'Fahrenheit'
-        text = re.sub(r"(\d+)\s*°\s*F", r"\1 degrees Fahrenheit", text)
-        # Look for degrees C, replaces with 'Celsius'
-        text = re.sub(r"(\d+)\s*°\s*C", r"\1 degrees Celsius", text)
-        # Re-order currency when using abbreviations, like $1M -> 1 million dollars (instead of dollars 1 million or 1 dollars million)
-        # Thousand
-        text = re.sub(r"\$(\d+)\s*[kK]", r"\1 thousand dollars", text)
-        # Million
-        text = re.sub(r"\$(\d+)\s*[mM]", r"\1 million dollars", text)
-        # Billion
-        text = re.sub(r"\$(\d+)\s*[bB]", r"\1 billion dollars", text)
-        # Replace common abbreviations
-        text = re.sub(r"(\d+)\W*[mM][pP][hH]\W", r"\1 miles per hour", text)
-        text = re.sub(r"(\d+)\W*[kK][pP][hH]\W", r"\1 kilometers per hour", text)
-        text = re.sub(r"(\d+)\W*[kK][gG]\W", r"\1 kilograms", text)
-        text = re.sub(r"(\d+)\W*[lL][bB][sS]?\W", r"\1 pounds", text)
-        text = re.sub(r"(\d+)\W*[fF][tT]\W", r"\1 feet", text)
-        text = re.sub(r"(\d+)\W*[mM][\W]", r"\1 meters", text)
-        text = re.sub(r"(\d+)\W*[cC][mM]\W", r"\1 centimeters", text)
-        text = re.sub(r"(\d+)\W*[iI][nN]\W", r"\1 inches", text)
-        text = re.sub(r"(\d+)\W*[mM][iI]\W", r"\1 miles", text)
-        text = re.sub(r"(\d+)\W*[kK][mM]\W", r"\1 kilometers", text)
-        # Replace ampersands with 'and'
-        text = re.sub(r"&", " and ", text)
-        # Replace the 'at' symbol with 'at'
-        text = re.sub(r"@", " at ", text)
-        # Replace newlines and carriage returns with spaces
-        text = re.sub(r"([\n\r])", " ", text)
-        # Replace multiple spaces with a single space
-        text = re.sub(r"\s+", " ", text)
-        # Remove uncommon punctuation which can be interpreted as other languages
-        text = re.sub(r"[^a-zA-Z0-9,.:;\ \-'\"\/()!?]", "", text)
-
-        return text.strip()
-
     def synthesize(
         self,
         text: str,
@@ -195,13 +149,13 @@ class XTTS2SpeechSynthesis(Task):
         else:
             speaker_wav = None
 
-        formatted_text = self.format_prompt(text)
+        formatted_text = normalize_text(text)
         if not formatted_text:
             # After adjusting text there's nothing to say, return 1 second of silence
             return torch.zeros((self.get_sample_rate(enhance=enhance),), dtype=torch.float32)
 
         audio = self.xtts(
-            self.format_prompt(text),
+            normalize_text(text),
             language=language,
             speaker_wav=speaker_wav,
             speaker_id=speaker_id,

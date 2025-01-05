@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 from typing import Optional, Union, List, Dict, Any, Tuple, TYPE_CHECKING
 
 from taproot.constants import *
@@ -10,7 +8,8 @@ from taproot.util import (
     audio_to_bct_tensor,
     concatenate_audio,
     seed_everything,
-    simplify_quotations
+    normalize_text,
+    chunk_text,
 )
 
 from taproot.tasks.base import Task
@@ -52,7 +51,7 @@ class F5TTSSpeechSynthesis(Task):
         "enhance": DeepFilterNet3Enhancement,
         "transcribe": DistilledWhisperLargeV3AudioTranscription
     }
-    static_memory_gb = 0.10766 # 107.66 MB
+    static_memory_gb = 0.14371 # 143.71 MB
     static_gpu_memory_gb = 0.70716 # 707.16 MB
 
     """Authorship Metadata"""
@@ -141,12 +140,6 @@ class F5TTSSpeechSynthesis(Task):
             return self.tasks.enhance.df_state.sr() # type: ignore[no-any-return]
         return self.sample_rate
 
-    def ends_with_multi_byte_character(self, text: str) -> bool:
-        """
-        Check if the text ends with a multi-byte character.
-        """
-        return len(text[-1].encode("utf-8")) > 1
-
     def get_punctuation_pause(self, text: str) -> float:
         """
         Check if the text ends with punctuation and return the pause duration ratio.
@@ -170,54 +163,13 @@ class F5TTSSpeechSynthesis(Task):
         :param is_reference_text: Whether the text is a reference text. Default is False.
         :return: The formatted text.
         """
-        text = simplify_quotations(text).replace(";", ",")
+        text = normalize_text(text).replace(";", ",")
         if is_reference_text:
             text = text.strip(",;- ")
             if not text.endswith("."):
                 return f"{text}. "
             return f"{text} "
         return text
-
-    def chunk_text(
-        self,
-        text: str,
-        max_length: int=135
-    ) -> List[str]:
-        """
-        Chunk text into smaller pieces.
-        """
-        chunks = []
-
-        current_chunk = ""
-        current_chunk_length = 0
-
-        # Split the text into sentences based on punctuation followed by whitespace
-        sentences = re.split(r"(?<=[;:,.!?])\s+|(?<=[；：，。！？])", text)
-
-        for sentence in sentences:
-            encoded = sentence.encode("utf-8")
-            encoded_length = len(encoded)
-
-            if encoded_length == 0:
-                continue
-
-            if current_chunk_length + encoded_length <= max_length:
-                current_chunk += sentence
-                current_chunk_length += encoded_length
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-                current_chunk_length = encoded_length
-
-            if not self.ends_with_multi_byte_character(sentence):
-                current_chunk += " "
-                current_chunk_length += 1
-
-        if current_chunk_length > 0:
-            chunks.append(current_chunk.strip())
-
-        return chunks
 
     def enhance(
         self,
@@ -294,8 +246,7 @@ class F5TTSSpeechSynthesis(Task):
 
         for i, text in enumerate(texts):
             text = self.format_text(text)
-
-            text_chunks = self.chunk_text(text)
+            text_chunks = chunk_text(text)
             num_text_chunks = len(text_chunks)
 
             for j, text_chunk in enumerate(text_chunks):

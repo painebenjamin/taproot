@@ -22,6 +22,7 @@ class PretrainedModelMixin:
     """
     model_url: Optional[Union[str, List[str]]] = None
     init_file_urls: Optional[Dict[str, Union[str, List[str]]]] = None
+    init_classmethod: Optional[str] = None
     quantization: Optional[str] = None
     pre_quantized: bool = False
     load_path: Optional[str] = None
@@ -293,8 +294,16 @@ class PretrainedModelMixin:
                 config_class = cls.get_config_class()
                 if config_class is not None:
                     if cls.spread_config:
-                        return model_class(config_class(**config))
-                    return model_class(config_class(config))
+                        config = config_class(**config)
+                    else:
+                        config = config_class(config)
+                    if cls.init_classmethod is not None:
+                        return getattr(model_class, cls.init_classmethod)(config)
+                    return model_class(config)
+                elif cls.init_classmethod is not None:
+                    if cls.spread_config:
+                        return getattr(model_class, cls.init_classmethod)(**config)
+                    return getattr(model_class, cls.init_classmethod)(config)
                 else:
                     if cls.spread_config:
                         return model_class(**config)

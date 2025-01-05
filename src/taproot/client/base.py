@@ -26,6 +26,8 @@ from ..util import (
 from ..constants import *
 from ..encryption import Encryption
 
+__all__ = ["Client"]
+
 class Client(Encryption):
     """
     As base client class for unix or TCP communication.

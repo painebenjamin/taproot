@@ -29,7 +29,7 @@ TEST_RESTRICTED_MODULES = {
     "pandas", "peft", "pil", "pytorch_lightning", "safetensors",
     "scipy", "skimage", "sklearn", "timm", "torch", "torchaudio",
     "torchdiffeq", "torchvision", "transformers", "tts",
-    "xformers",
+    "xformers", "phonemizer"
 }
 KNOWN_GPU_MODEL_FILE_EXTENSIONS = {
     ".bin", ".pt", ".pth", ".onnx", ".h5", ".gguf",

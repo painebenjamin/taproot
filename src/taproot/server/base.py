@@ -15,13 +15,13 @@ from typing import (
     Any,
     Iterator,
     List,
-    Literal,
     Optional,
     Tuple,
     Union,
     TYPE_CHECKING,
 )
 
+from typing_extensions import Literal
 from async_lru import alru_cache
 from contextlib import contextmanager, nullcontext
 from websockets.exceptions import ConnectionClosedOK
@@ -49,6 +49,8 @@ from ..util import (
 
 if TYPE_CHECKING:
     from ..client import Client
+
+__all__ = ["Server"]
 
 class Server(Encryption):
     """

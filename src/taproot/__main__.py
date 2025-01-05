@@ -244,6 +244,7 @@ def info(
             get_file_name_from_url,
             get_file_size_from_url,
             installed_package_matches_spec,
+            required_library_is_available,
             green,
             yellow,
             cyan,
@@ -267,6 +268,7 @@ def info(
             return
 
         task_is_available = task_class.is_available(allow_optional=optional, model_dir=model_dir)
+        task_libraries = task_class.required_libraries(allow_optional=optional)
         task_files = task_class.required_files(allow_optional=optional)
         task_packages = task_class.combined_required_packages(allow_optional=optional)
         task_signature = task_class.introspect()
@@ -315,9 +317,17 @@ def info(
             if task_license_allowances:
                 for line in task_license_allowances.splitlines():
                     click.echo(f"    {line}")
+        if task_libraries:
+            click.echo("Required libraries:")
+            for library in task_libraries:
+                if required_library_is_available(library):
+                    available_label = green("[available]")
+                else:
+                    available_label = red("[not available]")
+                click.echo(f"    {blue(library['name'])} {available_label}")
         if task_files:
             total_size = 0
-            click.echo("Files:")
+            click.echo("Required files:")
             for file in task_files:
                 file_name = get_file_name_from_url(file)
                 file_size = get_file_size_from_url(file)
@@ -398,6 +408,7 @@ def install(
     with get_command_context(log_level, add_import):
         from .tasks import Task
         from .util import (
+            assert_required_library_installed,
             combine_package_specifications,
             install_packages,
             get_file_name_from_url,
@@ -432,6 +443,11 @@ def install(
         pending_packages: List[Dict[str, Optional[str]]] = []
 
         for task_class in target_tasks:
+            # Check for libraries first, we don't install these automatically so we need to stop here
+            # if they aren't available. This will print an appropriate install command if one is known.
+            for required_library in task_class.required_libraries(allow_optional=optional):
+                assert_required_library_installed(required_library)
+
             if files:
                 pending_downloads.extend(
                     task_class.get_pending_downloads(
@@ -439,6 +455,7 @@ def install(
                         allow_optional=optional
                     )
                  )
+
             if packages or reinstall:
                 if reinstall:
                     pending_packages.append(

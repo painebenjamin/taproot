@@ -63,6 +63,13 @@ def concatenate_audio(
     :return: A tensor of shape (num_samples) or (c, num_samples) containing the concatenated audio.
     """
     import torch
+    # Remove any empty tensors
+    audio = [
+        wav
+        for wav in audio
+        if isinstance(wav, torch.Tensor)
+        and wav.numel() > 0
+    ]
     num_audio = len(audio)
     if num_audio == 0:
         raise ValueError("At least one audio must be provided.")

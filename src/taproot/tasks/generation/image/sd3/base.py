@@ -91,7 +91,7 @@ class StableDiffusion3(DiffusersTextToImageTask):
     static_gpu_memory_gb = 17.86 # Measured on 3090
 
     """Metadata for Diffusers T2I"""
-    use_compel = False
+    use_compel = True
     model_type = "sd3"
     pag_applied_layers = ["blocks.(13|15|17)"]
 

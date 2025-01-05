@@ -14,10 +14,11 @@ from ..constants import *
 from ..payload import *
 from ..util import (
     # Methods
+    assert_required_library_installed,
     audio_write,
     check_download_files_to_dir,
-    file_is_downloaded_to_dir,
     estimate_parameter_bytes,
+    file_is_downloaded_to_dir,
     generate_id,
     get_combined_specifications,
     get_file_name_from_url,
@@ -35,6 +36,7 @@ from ..util import (
     logger,
     profiler,
     ram_counter,
+    required_library_is_available,
     restrict_gpu,
     time_counter,
     timed_lru_cache,
@@ -105,6 +107,7 @@ class Task(ConfigMixin, IntrospectableMixin):
     runtime_memory_gb: Optional[float] = None
     static_gpu_memory_gb: Optional[float] = None
     runtime_gpu_memory_gb: Optional[float] = None
+    libraries: Optional[List[RequiredLibrary]] = None
 
     """Catalog metadata"""
     display_name: Optional[str] = None  # Display name for the task
@@ -577,6 +580,15 @@ class Task(ConfigMixin, IntrospectableMixin):
     """Task classmethods"""
 
     @classmethod
+    def required_libraries(cls, allow_optional: bool=True) -> List[RequiredLibrary]:
+        """
+        Get the required libraries for the task.
+        """
+        task_libraries = [] if cls.libraries is None else cls.libraries
+        sub_task_libraries = cls.get_task_loader(allow_optional=allow_optional).get_required_libraries()
+        return task_libraries + sub_task_libraries
+
+    @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
         """
         Get the required packages for the task.
@@ -663,7 +675,12 @@ class Task(ConfigMixin, IntrospectableMixin):
         """
         Check if the task is available.
         """
-        # First check for required packages for this task
+        # First check for required libraries for this task
+        for library in cls.required_libraries():
+            if not required_library_is_available(library):
+                return False
+
+        # Next check for required packages for this task
         for package, version in cls.combined_required_packages(allow_optional=allow_optional).items():
             if not installed_package_matches_spec(package, version):
                 return False
@@ -793,6 +810,10 @@ class Task(ConfigMixin, IntrospectableMixin):
         """
         Ensure that the task is available.
         """
+        for library in cls.required_libraries():
+            # will raise import error, potentially with instructions how to install
+            assert_required_library_installed(library)
+
         cls.install_required_packages()
         cls.download_required_files(
             model_dir=model_dir,

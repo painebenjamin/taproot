@@ -8,14 +8,18 @@ import platform
 from packaging.version import Version
 from packaging.specifiers import SpecifierSet
 
-from typing import Union, Optional, Dict, List, Tuple
+from typing import Union, Optional, Dict, List, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..payload import RequiredLibrary
 
 __all__ = [
+    "assert_required_library_installed",
     "combine_package_specifications",
     "get_combined_specifications",
     "get_installed_package_version",
-    "get_llama_cpp_package_versions",
     "get_llama_cpp_package_url",
+    "get_llama_cpp_package_versions",
     "get_pending_packages",
     "get_pip_package_name",
     "get_torch_package_version",
@@ -25,6 +29,7 @@ __all__ = [
     "install_packages",
     "installed_package_matches_spec",
     "is_torch_package",
+    "required_library_is_available",
     "version_matches_spec",
 ]
 
@@ -328,6 +333,109 @@ def package_is_installed(package_name: str) -> bool:
     Being 'installed' does not necessarily mean 'available.' (importable)
     """
     return installed_package_matches_spec(package_name)
+
+def binary_is_available(binary_name: str) -> bool:
+    """
+    Check if a binary is available.
+    """
+    from distutils import spawn
+    return spawn.find_executable(binary_name) is not None
+
+def apt_is_available() -> bool:
+    """
+    Check if apt is available.
+    """
+    return binary_is_available("apt")
+
+def yum_is_available() -> bool:
+    """
+    Check if yum is available.
+    """
+    return binary_is_available("yum")
+
+def dnf_is_available() -> bool:
+    """
+    Check if dnf is available.
+    """
+    return binary_is_available("dnf")
+
+def brew_is_available() -> bool:
+    """
+    Check if brew is available.
+    """
+    return binary_is_available("brew")
+
+def external_library_is_available(*library_names: str) -> bool:
+    """
+    Check if an external library is available.
+
+    Allows passing multiple names when multiple libraries are supported
+    (for example, espeak and espeak-ng).
+    """
+    import ctypes.util
+    for library_name in library_names:
+        if ctypes.util.find_library(library_name) is not None:
+            return True
+    return False
+
+def required_library_is_available(library: RequiredLibrary) -> bool:
+    """
+    Check if a required library is available.
+    """
+    library_names = [library["name"]] + library.get("aliases", [])
+    return external_library_is_available(*library_names)
+
+def get_required_library_unavailable_message(library: RequiredLibrary) -> str:
+    """
+    Get an error message for an unavailable required library.
+    """
+    unique_names = list(set([library["name"]] + library.get("aliases", [])))
+    if len(unique_names) == 1:
+        return f"Required library '{unique_names[0]}' is not available."
+    alternative_names = [name for name in unique_names if name != library["name"]]
+    return "Required library '{0:s}' (alternative{1:s}: {2:s}) is not available.".format(
+        library["name"],
+        "s" if len(alternative_names) > 1 else "",
+        ", ".join(alternative_names)
+    )
+
+def assert_required_library_installed(library: RequiredLibrary) -> None:
+    """
+    Assert that a required library is installed.
+
+    When not installed, tries to determine the appropriate package manager
+    and produce an informative error message - at the moment we do not
+    support installing external libraries automatically.
+    """
+    if required_library_is_available(library):
+        return
+
+    unavailable_message = get_required_library_unavailable_message(library)
+    install_command: Optional[str] = None
+    package_manager: Optional[str] = None
+    platform_name = platform.system().lower()
+    if platform_name == "linux":
+        if apt_is_available():
+            package_manager = "apt"
+        elif yum_is_available():
+            package_manager = "yum"
+        elif dnf_is_available():
+            package_manager = "dnf"
+    elif platform_name == "darwin" and brew_is_available():
+        package_manager = "brew"
+
+    if package_manager is not None:
+        package_name = library.get(package_manager, None)
+        if package_name is not None:
+            install_command = f"run `{package_manager} install {package_name}`"
+    elif platform_name == "windows":
+        url = library.get("win", None)
+        if url is not None:
+            install_command = f"visit {url} and download the appropriate installer."
+
+    if install_command is not None:
+        raise RuntimeError(f"{unavailable_message} To install, {install_command}")
+    raise RuntimeError(unavailable_message)
 
 def get_combined_specifications(*versions: Optional[str]) -> Optional[str]:
     """

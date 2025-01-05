@@ -44,6 +44,8 @@ from .pool import TrackingProcessPoolExecutor, TrackingThreadPoolExecutor
 if TYPE_CHECKING:
     from .executor import Executor
 
+__all__ = ["Dispatcher"]
+
 @dataclass
 class RunningExecutor:
     """
@@ -823,6 +825,8 @@ class Dispatcher(ConfigServer):
 
             now_running = RunningExecutor(server=executor, future=future)
             self.executors[task].append(now_running)
+            # Wait for executor process to complete importing to avoid GIL issues
+            await asyncio.sleep(2.5)
 
     """Public Methods"""
 

@@ -12,6 +12,7 @@ from taproot.util import (
 if TYPE_CHECKING:
     import torch
     from taproot.tasks.base import Task
+    from taproot.payload import RequiredLibrary
 
 __all__ = ["Loader", "PretrainedLoader", "TaskLoader"]
 
@@ -40,6 +41,14 @@ class Loader:
             self.dtype = get_torch_dtype(dtype)
         else:
             self.dtype = dtype
+
+    def get_required_libraries(self) -> List[RequiredLibrary]:
+        """
+        Gets the required libraries for all models.
+
+        This only makes sense for tasks, not models.
+        """
+        return []
 
     def get_required_files(self) -> List[str]:
         """
@@ -256,6 +265,17 @@ class TaskLoader(Loader):
     ) -> None:
         super(TaskLoader, self).__init__(directory, device, dtype)
         self.tasks = tasks
+
+    def get_required_libraries(self) -> List[RequiredLibrary]:
+        """
+        Gets the required libraries for all models.
+
+        This only makes sense for tasks, not models.
+        """
+        library_list: List[RequiredLibrary] = []
+        for task_class in self.tasks.values():
+            library_list.extend(task_class.required_libraries())
+        return library_list
 
     def get_required_files(self) -> List[str]:
         """

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 
+from typing import Tuple, Union, Optional, Sequence, Any, List
+
 from uuid import uuid4
 from math import modf
 from random import choices
-from typing import Tuple, Union, Optional, Sequence
 
 __all__ = [
     "get_uuid",
@@ -17,6 +18,9 @@ __all__ = [
     "indent_docstring",
     "simplify_quotations",
     "multiline_trim",
+    "normalize_text",
+    "ends_with_multi_byte_character",
+    "chunk_text",
 ]
 
 ASCII_CHARS = [
@@ -218,3 +222,175 @@ def multiline_trim(text: str) -> str:
     text = re.sub(r'(\n\s*\n)+', '\n\n', text)
     text = re.sub(r'\ +', ' ', text)
     return text.strip()
+
+def flip_money(m: re.Match[Any]) -> str:
+    """
+    Flips the order of the currency and the amount.
+    """
+    m = m.group()
+    bill = "dollar" if m[0] == "$" else "pound"
+    if m[-1].isalpha():
+        return f"{m[1:]} {bill}s" # type: ignore[call-overload]
+    elif "." not in m: # type: ignore[operator]
+        s = "" if m[1:] == "1" else "s" # type: ignore[call-overload]
+        return f"{m[1:]} {bill}{s}" # type: ignore[call-overload]
+    b, c = m[1:].split(".") # type: ignore[call-overload]
+    s = "" if b == "1" else "s"
+    c = int(c.ljust(2, "0"))
+    coins = (
+        f"cent{'' if c == 1 else 's'}"
+        if m[0] == "$"
+        else (
+            "penny"
+            if c == 1
+            else "pence"
+        )
+    )
+    return f"{b} {bill}{s} and {c} {coins}"
+
+def point_num(num: re.Match[Any]) -> str:
+    """
+    Replaces commas with periods in decimals.
+    """
+    a, b = num.group().split(".")
+    return " point ".join([a, " ".join(b)])
+
+def split_num(num: re.Match[Any]) -> str:
+    """
+    Splits a number into its components.
+    :return: The number split into its components.
+    """
+    num = num.group()
+    if '.' in num: # type: ignore[operator]
+        return num # type: ignore[return-value]
+    elif ':' in num: # type: ignore[operator]
+        h, m = [int(n) for n in num.split(':')] # type: ignore[attr-defined]
+        if m == 0:
+            return f"{h} o'clock"
+        elif m < 10:
+            return f'{h} oh {m}'
+        return f'{h} {m}'
+    year = int(num[:4]) # type: ignore[call-overload]
+    if year < 1100 or year % 1000 < 10:
+        return num # type: ignore[return-value]
+    left, right = num[:2], int(num[2:4]) # type: ignore[call-overload]
+    s = 's' if num.endswith('s') else '' # type: ignore[attr-defined]
+    if 100 <= year % 1000 <= 999:
+        if right == 0:
+            return f'{left} hundred{s}'
+        elif right < 10:
+            return f'{left} oh {right}{s}'
+    return f'{left} {right}{s}'
+
+def normalize_text(
+    text: str,
+    flip_currency: bool=True,
+    expand_degrees: bool=True,
+    expand_honorifics: bool=True,
+    expand_units: bool=True,
+    ampersand_to_and: bool=True,
+    at_symbol_to_at: bool=True,
+    negative_numbers: bool=True,
+    decimal_as_point: bool=True,
+    split_numbers: bool=True,
+) -> str:
+    """
+    Formats a prompt for the XTTS model.
+
+    There are some quirks with how the model pronounces certain formats of text.
+    This method attempts to fix some of these issues.
+    """
+    if negative_numbers:
+        # Look for numbers that lead with a '-' and replace with 'negative'
+        text = re.sub(r"([^a-zA-Z0-9])-(\d+)", r"\1negative \2", text)
+    if expand_degrees:
+        # Look for degrees F, replaces with 'Fahrenheit'
+        text = re.sub(r"(\d+)\s*°\s*F", r"\1 degrees Fahrenheit", text)
+        # Look for degrees C, replaces with 'Celsius'
+        text = re.sub(r"(\d+)\s*°\s*C", r"\1 degrees Celsius", text)
+    if flip_currency:
+        # Look for currency symbols and flip the order of the currency and the amount
+        text = re.sub(r"(?i)[$£]\d+(?:\.\d+)?(?: hundred| thousand| (?:[bm]|tr)illion)*\b|[$£]\d+\.\d\d?\b", flip_money, text)
+    if expand_units:
+        # Replace common abbreviations
+        text = re.sub(r"(\d+)\W*[mM][pP][hH]\W", r"\1 miles per hour", text)
+        text = re.sub(r"(\d+)\W*[kK][pP][hH]\W", r"\1 kilometers per hour", text)
+        text = re.sub(r"(\d+)\W*[kK][gG]\W", r"\1 kilograms", text)
+        text = re.sub(r"(\d+)\W*[lL][bB][sS]?\W", r"\1 pounds", text)
+        text = re.sub(r"(\d+)\W*[fF][tT]\W", r"\1 feet", text)
+        text = re.sub(r"(\d+)\W*[mM][\W]", r"\1 meters", text)
+        text = re.sub(r"(\d+)\W*[cC][mM]\W", r"\1 centimeters", text)
+        text = re.sub(r"(\d+)\W*[iI][nN]\W", r"\1 inches", text)
+        text = re.sub(r"(\d+)\W*[mM][iI]\W", r"\1 miles", text)
+        text = re.sub(r"(\d+)\W*[kK][mM]\W", r"\1 kilometers", text)
+    if expand_honorifics:
+        # Replace common honorifics
+        text = re.sub(r"Mr\.", "Mister", text)
+        text = re.sub(r"Mrs\.", "Missus", text)
+        text = re.sub(r"Ms\.", "Miss", text)
+        text = re.sub(r"Dr\.", "Doctor", text)
+        text = re.sub(r"Prof\.", "Professor", text)
+    if at_symbol_to_at:
+        # Replace the 'at' symbol with 'at'
+        text = re.sub(r"@", " at ", text)
+    if ampersand_to_and:
+        # Replace ampersands with 'and'
+        text = re.sub(r"&", " and ", text)
+    if decimal_as_point:
+        # Replace commas with periods in decimals
+        text = re.sub(r"\d*\.\d+", point_num, text)
+    if split_numbers:
+        # Split numbers into their components
+        text = re.sub(r"\d*\.\d+|\b\d{4}s?\b|(?<!:)\b(?:[1-9]|1[0-2]):[0-5]\d\b(?!:)", split_num, text)
+
+    # Replace newlines and carriage returns with spaces
+    text = re.sub(r"([\n\r])", " ", text)
+    # Replace multiple spaces with a single space
+    text = re.sub(r"\s+", " ", text)
+    # Remove uncommon punctuation which can be interpreted as other languages
+    text = re.sub(r"[^a-zA-Z0-9,.:;\ \-'\"\/()!?]", "", text)
+
+    return text.strip()
+
+def ends_with_multi_byte_character(text: str) -> bool:
+    """
+    Check if the text ends with a multi-byte character.
+    """
+    return len(text[-1].encode("utf-8")) > 1
+
+def chunk_text(text: str, max_length: int=135) -> List[str]:
+    """
+    Chunk text into smaller pieces.
+    """
+    chunks = []
+
+    current_chunk = ""
+    current_chunk_length = 0
+
+    # Split the text into sentences based on punctuation followed by whitespace
+    sentences = re.split(r"(?<=[;:,.!?])\s+|(?<=[；：，。！？])", text)
+
+    for sentence in sentences:
+        encoded = sentence.encode("utf-8")
+        encoded_length = len(encoded)
+
+        if encoded_length == 0:
+            continue
+
+        if current_chunk_length + encoded_length <= max_length:
+            current_chunk += sentence
+            current_chunk_length += encoded_length
+        else:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = sentence
+            current_chunk_length = encoded_length
+
+        if not ends_with_multi_byte_character(sentence):
+            current_chunk += " "
+            current_chunk_length += 1
+
+    if current_chunk_length > 0:
+        chunks.append(current_chunk.strip())
+
+    return chunks

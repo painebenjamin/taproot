@@ -237,7 +237,7 @@ class DeepFilterNet3Enhancement(Task):
             )
             results = torch.stack([
                 self._process(audio)
-                for audio in audios.float()
+                for audio in audios
             ])
 
         return self.get_output_from_audio_result(

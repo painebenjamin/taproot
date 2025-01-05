@@ -36,6 +36,8 @@ from .config import ConfigServer
 if TYPE_CHECKING:
     from ..tasks import TaskQueue
 
+__all__ = ["Executor"]
+
 class Executor(ConfigServer):
     """
     The executor class that executes the task.

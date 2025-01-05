@@ -13,7 +13,8 @@ __all__ = [
     "ServerStatusPayload",
     "DispatcherStatusPayload",
     "OverseerStatusPayload",
-    "FlexibleResultMapping"
+    "FlexibleResultMapping",
+    "RequiredLibrary",
 ]
 
 class ParameterMetadataPayload(TypedDict):
@@ -83,3 +84,12 @@ class DispatcherStatusPayload(ServerStatusPayload):
 
 class OverseerStatusPayload(ServerStatusPayload):
     dispatchers: Dict[str, Optional[DispatcherStatusPayload]]
+
+class RequiredLibrary(TypedDict):
+    name: str
+    aliases: NotRequired[List[str]]
+    apt: NotRequired[Optional[str]]
+    yum: NotRequired[Optional[str]]
+    dnf: NotRequired[Optional[str]]
+    brew: NotRequired[Optional[str]]
+    win: NotRequired[Optional[str]]

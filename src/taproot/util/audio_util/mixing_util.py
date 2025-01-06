@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Union, Any, TYPE_CHECKING
+from typing import List, Optional, Tuple, Union, Any, Sequence, TYPE_CHECKING
 
 from ..introspection_util import is_torch_tensor, is_numpy_array
 
@@ -129,12 +129,12 @@ def concatenate_audio(
     return concatenated_audio
 
 def trim_silence(
-    audio: Union[Tensor, np.ndarray[Any, Any]],
+    audio: Union[Tensor, np.ndarray[Any, Any], Sequence[Union[Tensor, np.ndarray[Any, Any]]]],
     leading: bool=True,
     trailing: bool=True,
     threshold: float=1e-3,
     raise_when_all_silent: bool=True,
-) -> Union[Tensor, np.ndarray[Any, Any]]:
+) -> Union[Tensor, np.ndarray[Any, Any], Sequence[Union[Tensor, np.ndarray[Any, Any]]]]:
     """
     Trim leading and trailing silence from audio.
 
@@ -164,6 +164,18 @@ def trim_silence(
     :param raise_when_all_silent: Whether to raise an exception when all audio is silent.
     :return: A tensor of shape (num_samples) or (c, num_samples) or a numpy array of shape (num_samples) or (c, num_samples) containing the trimmed audio.
     """
+    if isinstance(audio, list):
+        return [
+            trim_silence( # type: ignore[misc]
+                wav,
+                leading=leading,
+                trailing=trailing,
+                threshold=threshold,
+                raise_when_all_silent=raise_when_all_silent
+            )
+            for wav in audio
+        ]
+
     start_sample_index = 0
     end_sample_index = len(audio)
     if is_torch_tensor(audio):
@@ -211,4 +223,4 @@ def trim_silence(
         return audio[..., start_sample_index:end_sample_index]
 
     else:
-        raise ValueError("audio must be a torch tensor or numpy array.")
+        raise ValueError(f"Audio must be a torch tensor or numpy array - got {type(audio)}")

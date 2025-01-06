@@ -295,7 +295,7 @@ def normalize_text(
     split_numbers: bool=True,
 ) -> str:
     """
-    Formats a prompt for the XTTS model.
+    Formats a prompt for TTS models.
 
     There are some quirks with how the model pronounces certain formats of text.
     This method attempts to fix some of these issues.

@@ -1393,7 +1393,7 @@ class Task(ConfigMixin, IntrospectableMixin):
 
     def get_output_from_audio_result(
         self,
-        result: Union[torch.Tensor, np.ndarray[Any, Any]],
+        result: Union[torch.Tensor, np.ndarray[Any, Any], Sequence[Union[torch.Tensor, np.ndarray[Any, Any]]]],
         output_format: Optional[AUDIO_OUTPUT_FORMAT_LITERAL]="wav",
         sample_rate: int=DEFAULT_SAMPLE_RATE,
         normalization_strategy: Optional[Literal["clip", "peak", "rms", "loudness", "none"]]="loudness",
@@ -1416,14 +1416,14 @@ class Task(ConfigMixin, IntrospectableMixin):
                 if is_numpy_array(audio):
                     audio = torch.from_numpy(audio)
                 if len(audio.shape) == 1:
-                    audio = audio.unsqueeze(0)
+                    audio = audio.unsqueeze(0) # type: ignore[union-attr]
                 num_channels, num_samples = audio.shape
                 duration = num_samples / sample_rate
                 output_file = tempfile.mktemp()
                 output_file = str(
                     audio_write(
                         output_file,
-                        audio,
+                        audio, # type: ignore[arg-type]
                         sample_rate=sample_rate,
                         format="wav" if output_format is None else output_format,
                         normalize=normalization_strategy is not None,
@@ -1448,22 +1448,30 @@ class Task(ConfigMixin, IntrospectableMixin):
             else:
                 result = result_bytes # type: ignore[assignment]
         elif output_format == "float":
-            # Float tensor
-            if is_numpy_array(result):
-                import torch
-                result = torch.from_numpy(result)
-            if len(result.shape) == 1:
-                result = result.unsqueeze(0) # type: ignore[union-attr]
-            if len(result.shape) == 2:
-                result = result.unsqueeze(0) # type: ignore[union-attr]
+            result_tensors: List[torch.Tensor] = []
+            for audio in result:
+                # Float tensor
+                if is_numpy_array(audio):
+                    import torch
+                    audio = torch.from_numpy(audio)
+                if len(audio.shape) == 1:
+                    audio = audio.unsqueeze(0) # type: ignore[union-attr]
+                elif len(audio.shape) == 3:
+                    audio = audio.squeeze(0)
+                result_tensors.append(audio) # type: ignore[arg-type]
+            result = result_tensors
         elif output_format == "int":
-            # NP int16 array
-            if is_torch_tensor(result):
-                result = result.numpy()
-            if len(result.shape) == 1:
-                result = result[None, :] # Add channel dimension
-            if len(result.shape) == 2:
-                result = result[None, :] # Add batch dimension
+            result_ndarrays: List[np.ndarray[Any, Any]] = []
+            for audio in result:
+                # NP int16 array
+                if is_torch_tensor(audio):
+                    audio = audio.numpy()
+                if len(audio.shape) == 1:
+                    audio = audio[None, :]
+                elif len(audio.shape) == 3:
+                    audio = audio[0]
+                result_ndarrays.append(audio) # type: ignore[arg-type]
+            result = result_ndarrays
         else:
             raise ValueError(f"Output type {output_format} not recognized.")
 

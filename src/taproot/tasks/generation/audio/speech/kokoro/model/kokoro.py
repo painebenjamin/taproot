@@ -59,29 +59,25 @@ class KokoroModel(nn.Module):
                     child.flatten_parameters()
 
     @torch.no_grad()
-    def forward(
+    def encode_tokens(
         self,
         tokens: List[int],
-        ref_s: torch.Tensor,
+        s: torch.Tensor,
+        device: torch.device,
+        dtype: torch.dtype,
         speed: float=1.0
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         :param tokens: The input tokens.
-        :param ref_s: The reference spectrogram.
+        :param s: The reference spectrogram.
         :param speed: The speed factor.
-        :return: The generated spectrogram.
+        :return: The encoded tokens.
         """
-        next_param = next(self.parameters())
-        device = next_param.device
-        dtype = next_param.dtype
-
-        ref_s = ref_s.to(device, dtype)
         tokens = torch.LongTensor([[0, *tokens, 0]]).to(device) # type: ignore[assignment]
         input_lengths = torch.LongTensor([tokens.shape[-1]]).to(device) # type: ignore[attr-defined]
         text_mask = length_to_mask(input_lengths).to(device)
         bert_dur = self.bert(tokens, attention_mask=(~text_mask).int())
         d_en = self.bert_encoder(bert_dur).transpose(-1, -2)
-        s = ref_s[:, 128:]
 
         d = self.predictor.text_encoder(d_en, s, input_lengths, text_mask)
         x, _ = self.predictor.lstm(d)
@@ -97,23 +93,75 @@ class KokoroModel(nn.Module):
             c_frame += pred_dur[0,i].item() # type: ignore[assignment]
 
         en = d.transpose(-1, -2) @ pred_aln_trg.unsqueeze(0)
-        f0_pred, n_pred = self.predictor.f0_n_train(en, s)
 
         t_en = self.text_encoder(tokens, input_lengths, text_mask)
         asr = t_en @ pred_aln_trg.unsqueeze(0)
+        return en, asr
 
-        return self.decoder(asr, f0_pred, n_pred, ref_s[:, :128]).squeeze() # type: ignore[no-any-return]
+    @torch.no_grad()
+    def forward(
+        self,
+        tokens_list: List[List[int]],
+        ref_s: torch.Tensor,
+        speed: float=1.0
+    ) -> List[torch.Tensor]:
+        """
+        :param tokens_list: The input tokens lists.
+        :param ref_s: The reference spectrogram.
+        :param speed: The speed factor.
+        :return: The generated audio.
+        """
+        next_param = next(self.parameters())
+        device = next_param.device
+        dtype = next_param.dtype
+
+        ref_s = ref_s.to(device, dtype)
+        s = ref_s[:, 128:]
+
+        en_list = []
+        asr_list = []
+
+        for tokens in tokens_list:
+            en, asr = self.encode_tokens(tokens, s, device, dtype, speed)
+            en_list.append(en)
+            asr_list.append(asr)
+
+        # Zero-pad and concatenate the en tensor
+        max_en_size = max(en.size(2) for en in en_list)
+        en_list = [torch.cat([en, torch.zeros(en.size(0), en.size(1), max_en_size - en.size(2)).to(device, dtype)], dim=-1) for en in en_list]
+        en = torch.cat(en_list, dim=0)
+
+        # Run the predictor
+        f0_preds, n_preds = self.predictor.f0_n_train(en, s)
+
+        # Decode samples independently
+        decoded = []
+        for (f0_pred, n_pred, asr) in zip(f0_preds, n_preds, asr_list):
+            pred_size = asr.size(-1) * 2
+            decoded.append(
+                self.decoder(
+                    asr,
+                    f0_pred[:pred_size].unsqueeze(0),
+                    n_pred[:pred_size].unsqueeze(0),
+                    ref_s[:, :128]
+                )
+            )
+
+        return decoded
 
     @torch.no_grad()
     def generate(
         self,
-        text: str,
+        texts: List[str],
         voice: Optional[str]=None,
         voice_embed: Optional[torch.Tensor]=None,
         lang: str="en-us", # american english
         speed: float=1.0,
-        return_text: bool=False
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, str]]:
+        return_texts: bool=False
+    ) -> Union[
+        List[torch.Tensor],
+        List[Tuple[torch.Tensor, str]]
+    ]:
         """
         :param text: The input text.
         :param voice: The voice to use.
@@ -144,21 +192,31 @@ class KokoroModel(nn.Module):
             elif "en.gb" in voice:
                 lang = "en-gb"
 
-        phonemes = phonemize(text, lang)
-        tokens = tokenize(phonemes)
+        tokens_list = []
+        max_token_len = 0
 
-        if not tokens:
-            raise ValueError("Text is empty.")
-        if len(tokens) > 510:
-            tokens = tokens[:510]
-            logger.warning("Text is too long, truncating to 510 tokens.")
+        for i, text in enumerate(texts):
+            phonemes = phonemize(text, lang)
+            tokens = tokenize(phonemes)
 
-        reference = voice_embed[len(tokens)] # Voices are packed as a matrix
-        out = self.forward(tokens, reference, speed)
+            if not tokens:
+                raise ValueError("Text is empty.")
+            token_len = len(tokens)
+            if token_len > 510:
+                tokens = tokens[:510]
+                logger.warning("Text is too long, truncating to 510 tokens.")
+                token_len = 510
 
-        if return_text:
-            return out, untokenize(tokens)
-        return out
+            max_token_len = max(max_token_len, token_len)
+            tokens_list.append(tokens)
+
+        reference = voice_embed[max_token_len] # Voices are packed as a matrix
+        outs = self.forward(tokens_list, reference, speed)
+
+        if return_texts:
+            return list(zip(outs, [untokenize(tokens) for tokens in tokens_list]))
+
+        return outs
 
     @classmethod
     def from_config(cls, **config: Any) -> KokoroModel:

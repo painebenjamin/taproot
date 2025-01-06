@@ -49,6 +49,13 @@ def cuda_available() -> bool:
     import torch
     return torch.cuda.is_available() and torch.backends.cuda.is_built() # type: ignore[no-untyped-call]
 
+def cuda_initialized() -> bool:
+    """
+    Returns true if CUDA is initialized.
+    """
+    import torch
+    return bool(torch.cuda.is_initialized()) # type: ignore[no-untyped-call]
+
 def mps_available() -> bool:
     """
     Returns true if MPS is available.
@@ -105,7 +112,7 @@ def empty_cache(synchronize: bool=True) -> None:
     import gc
     gc.collect()
     if torch_imported():
-        if cuda_available():
+        if cuda_available() and cuda_initialized():
             import torch
             import torch.cuda
             torch.cuda.empty_cache()

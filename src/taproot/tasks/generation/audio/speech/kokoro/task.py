@@ -4,12 +4,12 @@ from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
 
 from taproot.constants import *
 from taproot.util import (
-    logger,
     get_seed,
     concatenate_audio,
     seed_everything,
     normalize_text,
-    chunk_text
+    chunk_text,
+    chunk_iterable,
 )
 
 from taproot.tasks.base import Task
@@ -141,57 +141,84 @@ class KokoroSpeechSynthesis(Task):
         seed: SeedType=None,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
-        stream: bool=False,
-    ) -> torch.Tensor:
+        batch_size: int=32,
+    ) -> List[torch.Tensor]:
         """
         Synthesize audio from text.
         """
         import torch
 
         audios: List[torch.Tensor] = []
-        num_texts = len(texts)
+
+        text_chunks_count: List[int] = []
+        text_chunks: List[str] = []
 
         for i, text in enumerate(texts):
             text = normalize_text(text)
-            text_chunks = chunk_text(text)
-            num_text_chunks = len(text_chunks)
+            chunks = chunk_text(text, max_length=500)
 
-            for j, text_chunk in enumerate(text_chunks):
-                logger.debug(
-                    f"Generating audio from text chunk {j + 1} of {num_text_chunks} " +
-                    f"for text {i + 1} of {num_texts}, text chunk: {text_chunk}"
-                )
-                audio = self.kokoro.generate(
+            text_chunks_count.append(len(chunks))
+            text_chunks.extend(chunks)
+
+        for text_chunk_slice in chunk_iterable(text_chunks, batch_size):
+            audios.extend(
+                self.kokoro.generate( # type: ignore[arg-type]
                     voice=voice,
-                    text=text_chunk,
+                    texts=text_chunk_slice,
                     speed=speed,
                 )
+            )
 
-                audio = audio.squeeze().cpu() # type: ignore[union-attr]
+        if enhance:
+            audios = [
+                self.enhance(audio.cpu(), seed=seed)
+                for audio in audios
+            ]
 
-                if enhance:
-                    audio = self.enhance(audio, seed=seed)
+        audios = [audio.squeeze().cpu() for audio in audios]
+        final_audios: List[List[torch.Tensor]] = []
 
-                if (i < num_texts - 1 or j < num_text_chunks - 1):
-                    pause = self.get_punctuation_pause(text_chunk)
-                    if pause > 0:
-                        pause_duration = punctuation_pause_duration * pause
-                        logger.debug(f"Adding pause of {pause_duration} seconds to the end of the audio.")
-                        num_pause_samples = int(pause_duration * self.get_sample_rate(enhance=enhance) * (1 + (enhance * 7)))
-                        pause_samples = torch.zeros(num_pause_samples).to(dtype=audio.dtype, device=audio.device)
-                        audio = torch.cat([audio, pause_samples])
+        for i, (audio, text_chunk) in enumerate(zip(audios, text_chunks)):
+            # Figure out which passed text this audio corresponds to
+            text_index = 0
+            text_chunk_index = 0
+            chunks_count = 0
 
-                if stream:
-                    self.add_intermediate(audio)
+            for j, count in enumerate(text_chunks_count):
+                chunks_count += count
+                if i < chunks_count:
+                    text_index = j
+                    text_chunk_index = i - (chunks_count - count)
+                    break
 
-                audios.append(audio)
+            if j >= len(text_chunks_count) - 1:
+                text_index = j
+                text_chunk_index = i - (chunks_count - count)
+
+            # If this isn't the last audio in the text, determine if we need to add silence
+            if text_chunk_index < text_chunks_count[text_index] - 1:
+                pause = self.get_punctuation_pause(text_chunk)
+                if pause > 0:
+                    pause_duration = punctuation_pause_duration * pause
+                    num_pause_samples = int(pause_duration * self.get_sample_rate(enhance=enhance) * (1 + (enhance * 7)))
+                    pause_samples = torch.zeros(num_pause_samples).to(dtype=audio.dtype, device=audio.device)
+                    audio = torch.cat([audio, pause_samples])
+
+            # Concatenate this to the right tensor
+            if len(final_audios) == text_index:
+                final_audios.append([audio])
+            else:
+                final_audios[text_index].append(audio)
 
         # Combine audios
-        return concatenate_audio(
-            audios,
-            cross_fade_duration=cross_fade_duration,
-            sample_rate=self.get_sample_rate(enhance=enhance)
-        )
+        return [
+            concatenate_audio(
+                audios,
+                cross_fade_duration=cross_fade_duration,
+                sample_rate=self.get_sample_rate(enhance=enhance)
+            )
+            for audios in final_audios
+        ]
 
     """Overrides"""
 
@@ -203,7 +230,6 @@ class KokoroSpeechSynthesis(Task):
         enhance: bool=False,
         seed: SeedType=None,
         speed: float=1.0,
-        stream: bool=False,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
         output_format: AUDIO_OUTPUT_FORMAT_LITERAL="wav",
@@ -235,14 +261,13 @@ class KokoroSpeechSynthesis(Task):
                 enhance=enhance,
                 seed=seed,
                 speed=speed,
-                stream=stream,
                 cross_fade_duration=cross_fade_duration,
                 punctuation_pause_duration=punctuation_pause_duration,
             )
 
         # This utility method will get the requested format
         return self.get_output_from_audio_result(
-            results.unsqueeze(0),
+            results,
             sample_rate=self.get_sample_rate(enhance=enhance),
             output_format=output_format,
             output_upload=output_upload,

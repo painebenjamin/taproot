@@ -273,10 +273,22 @@ def normalize_loudness(
     """
     import torch
     import torchaudio
+
     wav = wav.float()
+    wav_length = wav.shape[-1]
+    min_length = int(sample_rate * .4)
+    if wav_length == 0:
+        return wav
+    elif wav_length < min_length:
+        # Need at least 1/4 second of audio, add silence if needed.
+        silence_frames = min_length - wav_length
+        silence = torch.zeros((wav.shape[0], silence_frames), dtype=wav.dtype, device=wav.device)
+        wav = torch.cat([wav, silence], dim=-1)
+
     energy = wav.pow(2).mean().sqrt().item()
     if energy < energy_floor:
-        return wav
+        return wav[:, :wav_length]
+
     transform = torchaudio.transforms.Loudness(sample_rate)
     input_loudness_db = transform(wav).item()
     # calculate the gain needed to scale to the desired loudness level
@@ -286,7 +298,7 @@ def normalize_loudness(
     if loudness_compressor:
         output = torch.tanh(output)
     assert output.isfinite().all(), (input_loudness_db, wav.pow(2).mean().sqrt())
-    return output # type: ignore[no-any-return]
+    return output[:, :wav_length] # type: ignore[no-any-return]
 
 def clip_wav(
     wav: torch.Tensor,

@@ -806,9 +806,15 @@ def dispatcher(
                 loop.run_until_complete(asyncio.sleep(0.1))
         except KeyboardInterrupt:
             pass
-        # Graceful exit
+
+        # Unregister from overseers
         for overseer_address in overseer:
-            loop.run_until_complete(server.unregister_overseer(overseer_address))
+            try:
+                loop.run_until_complete(server.unregister_overseer(overseer_address))
+            except:
+                pass
+
+        # Graceful exit
         loop.run_until_complete(server.exit())
 
         # Sleep and then cancel any remaining tasks

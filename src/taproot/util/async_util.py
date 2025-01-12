@@ -253,8 +253,9 @@ class ServerRunner:
                 total_time += 0.2
 
             # Ensure all tasks are done
-            for task in tasks:
+            for task, server in zip(tasks, self.servers):
                 if not task.done():
+                    logger.warning(f"Server {type(server).__name__} listening on {server.address} did not exit cleanly, cancelling task.")
                     task.cancel()
 
             # Await all tasks

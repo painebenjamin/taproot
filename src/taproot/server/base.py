@@ -682,6 +682,8 @@ class Server(Encryption):
         elif command == "status":
             return await self.status(data)
         elif command == "exit":
+            if self.protocol == "memory":
+                self.manual_exit.set()
             return self._shutdown_key
         return await self.command(command, data)
 

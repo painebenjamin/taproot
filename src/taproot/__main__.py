@@ -647,18 +647,20 @@ def echo(
 
 @main.command(name="overseer", short_help="Runs an overseer (cluster entrypoint and node manager).")
 @click.option("--local", "-l", type=bool, default=False, help="Additionally run a local dispatcher while running the overseer.", show_default=True, is_flag=True)
-@click.option("--dispatcher", "-d", multiple=True, type=str, help="Dispatcher address to register after starting.", show_default=True)
-@click.option("--dispatcher-config", "-dc", type=click.Path(exists=True), default=None, help="Dispatcher configuration file to use. Overrides other dispatcher-related configuration.", show_default=True)
-@click.option("--max-workers", "-w", type=int, default=1, help="Maximum number of workers for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
-@click.option("--queue-size", "-qs", type=int, default=1, help="Maximum queue size for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--local-address", "-la", type=str, default=DEFAULT_LOCAL_DISPATCHER_ADDRESS, help="Local dispatcher address to use.", show_default=True)
+@click.option("--local-config", "-lc", type=click.Path(exists=True), default=None, help="Local dispatcher configuration file to use. Overrides other dispatcher-related configuration.", show_default=True)
+@click.option("--local-max-workers", "-lw", type=int, default=1, help="Maximum number of workers for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--local-queue-size", "-lq", type=int, default=1, help="Maximum queue size for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--dispatcher", "-d", multiple=True, type=str, help="Dispatcher address(es) to register after starting.", show_default=True)
 @context_options()
 @server_options()
 def overseer(
     local: bool=False,
+    local_address: str=DEFAULT_LOCAL_DISPATCHER_ADDRESS,
+    local_config: Optional[str]=None,
+    local_max_workers: int=1,
+    local_queue_size: int=1,
     dispatcher: List[str]=[],
-    dispatcher_config: Optional[str]=None,
-    max_workers: int=1,
-    queue_size: int=1,
     address: str=DEFAULT_ADDRESS,
     config: Optional[str]=None,
     allow: List[str]=[],
@@ -704,7 +706,9 @@ def overseer(
             if local:
                 local_server = get_server(
                     Dispatcher,
-                    config=dispatcher_config,
+                    address=local_address,
+                    default_address=DEFAULT_LOCAL_DISPATCHER_ADDRESS,
+                    config=local_config,
                     allow=allow,
                     reject=reject,
                     allow_control=allow_control,
@@ -713,13 +717,18 @@ def overseer(
                     cafile=cafile,
                     control_encryption_key=control_encryption_key
                 )
-                if not dispatcher_config:
-                    local_server.protocol = "memory"
-                    local_server.port = 0
-                    local_server.max_workers = max_workers
-                    local_server.executor_queue_size = queue_size
+                if not local_config:
+                    if not local_address:
+                        local_server.protocol = "memory"
+                        local_server.port = 0
+                    else:
+                        local_server.address = local_address
+                    local_server.max_workers = local_max_workers
+                    local_server.executor_queue_size = local_queue_size
+
                 if save_dir is not None:
                     local_server.save_dir = save_dir
+
                 if model_dir is not None:
                     local_server.model_dir = model_dir
 

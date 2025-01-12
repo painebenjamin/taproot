@@ -1,5 +1,3 @@
-import nest_asyncio # type: ignore[import-untyped,unused-ignore]
-nest_asyncio.apply()
 from .constants import *
 from .client import *
 from .server import *

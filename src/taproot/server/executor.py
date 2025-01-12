@@ -4,10 +4,10 @@ import asyncio
 
 from typing import (
     Any,
+    AsyncIterator,
     Callable,
     Coroutine,
     Dict,
-    Iterator,
     List,
     Optional,
     Union,
@@ -16,7 +16,7 @@ from typing import (
 )
 from typing_extensions import Literal
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 
 from ..payload import *
 from ..config import ExecutorConfig
@@ -139,7 +139,6 @@ class Executor(ConfigServer):
             continuation = [continuation]
 
         executor_futures: List[Coroutine[Any, Any, Any]] = []
-        loop = asyncio.get_event_loop()
         parameters_list: List[Dict[str, Any]] = []
         for request in continuation:
             kwargs: Dict[str, Any] = {}
@@ -172,10 +171,7 @@ class Executor(ConfigServer):
             overseer_client.address = overseer
             executor_futures.append(overseer_client(payload, timeout=0.5))
 
-        executor_targets = loop.run_until_complete(
-            asyncio.gather(*executor_futures),
-        )
-
+        executor_targets = await asyncio.gather(*executor_futures)
         for request, parameters, executor_target in zip(continuation, parameters_list, executor_targets):
             # Assemble the payload
             executor_payload = {
@@ -269,13 +265,18 @@ class Executor(ConfigServer):
         kwargs: Dict[str, Any] = {
             "id": payload_id,
             "callback": callback,
-            "wait_for_result": wait_for_result
         }
         request_parameters = request.get("parameters", {})
         if isinstance(request_parameters, dict):
             kwargs.update(request_parameters)
 
         result = self.queue(**kwargs)
+        if wait_for_result and result["status"] not in ["complete", "error"]:
+            # This will raise an error if the task raised it on the user input
+            result["result"] = await self.queue.fetch_result(result["id"])
+            result["callback"] = await self.queue.fetch_callback_result(result["id"])
+            result["status"] = "error" if isinstance(result["result"], Exception) else "complete"
+
         result["id"] = request_id # Remove the client ID from the result
         result_callback = result.pop("callback", None) # type: ignore[misc]
         if result_callback is not None:
@@ -287,13 +288,13 @@ class Executor(ConfigServer):
             return result["result"] # Return only the result
         return result
 
-    @contextmanager
-    def context(self) -> Iterator[None]:
+    @asynccontextmanager
+    async def context(self) -> AsyncIterator[None]:
         """
         Returns a context manager for the executor.
         """
         from ..tasks import Task, TaskQueue
-        with super().context():
+        async with super().context():
             if self.config.install:
                 task = Task.get(
                     task=self.config.queue_config.task,
@@ -306,18 +307,19 @@ class Executor(ConfigServer):
                     if self.config.queue_config.model is not None:
                         raise RuntimeError(f"Model '{self.config.queue_config.task}:{self.config.queue_config.model}' not found.")
                     raise RuntimeError(f"Task '{self.config.queue_config.task}' not found.")
-                task.ensure_availability(
-                    text_callback=logger.debug,
-                )
+                task.ensure_availability(text_callback=logger.debug)
             self.queue = TaskQueue(self.config.queue_config)
+            self.queue.start()
             yield
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """
         Shuts down the executor.
         """
-        self.queue.shutdown()
-        super().shutdown()
+        logger.debug("Shutting down executor task queue.")
+        await self.queue.shutdown()
+        logger.debug("Queue shut down, shutting down executor.")
+        await super().shutdown()
 
     """Additional Public methods"""
 

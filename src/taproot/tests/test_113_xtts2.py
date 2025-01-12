@@ -3,6 +3,7 @@ import logging
 from time import perf_counter
 from taproot import Task, TaskQueue
 from taproot.util import (
+    AsyncRunner,
     debug_logger,
     save_test_audio,
     execute_task_test_suite,
@@ -90,51 +91,48 @@ def test_xtts2_task_streaming() -> None:
     """
     Test the xtts2 model with streaming via the task interface.
     """
-    with debug_logger(logging.INFO) as logger:
-        text = """Ah, distinctly I remember it was in the bleak December;
-        And each separate dying ember writhed upon the floor.
-        Eagerly I wished the morrow;—vainly I had sought to borrow
-        From my books surcease of sorrow—sorrow for the lost Lenore—
-        For the rare and radiant maiden whom the angels name Lenore—
-        Nameless here for evermore."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        queue = TaskQueue({
-            "task": "speech-synthesis",
-            "model": "xtts-v2"
-        })
-        loop.run_until_complete(queue._wait_for_task())
+    async def execute_test() -> None:
+        with debug_logger(logging.INFO) as logger:
+            text = """Ah, distinctly I remember it was in the bleak December;
+            And each separate dying ember writhed upon the floor.
+            Eagerly I wished the morrow;—vainly I had sought to borrow
+            From my books surcease of sorrow—sorrow for the lost Lenore—
+            For the rare and radiant maiden whom the angels name Lenore—
+            Nameless here for evermore."""
+            queue = TaskQueue({
+                "task": "speech-synthesis",
+                "model": "xtts-v2"
+            })
+            await queue.wait_for_task()
 
-        with log_duration("warmup"):
-            warmup_result = queue(text="Hello, world!", stream=False, enhance=True)
-            while warmup_result["status"] not in ["complete", "error"]:
-                loop.run_until_complete(asyncio.sleep(0.02))
-                warmup_result = queue(id=warmup_result["id"])
-            if warmup_result["status"] == "error":
-                raise RuntimeError("Warmup failed")
+            with log_duration("warmup"):
+                warmup_result = queue(text="Hello, world!", stream=False, enhance=True)
+                while warmup_result["status"] not in ["complete", "error"]:
+                    await asyncio.sleep(0.02)
+                    warmup_result = queue(id=warmup_result["id"])
+                if warmup_result["status"] == "error":
+                    raise RuntimeError("Warmup failed")
 
-        first_intermediate = True
-        start = perf_counter()
-        result = queue(text=text, stream=True, enhance=True, output_format="float")
-        with log_duration("streaming"):
-            while result["status"] not in ["complete", "error"]:
-                loop.run_until_complete(asyncio.sleep(0.1))
-                result = queue(id=result["id"])
-                if result.get("intermediate", None) is not None:
-                    if first_intermediate:
-                        logger.info(f"First intermediate received in {human_duration(perf_counter() - start)}")
-                        first_intermediate = False
-                    logger.info(f"Number of samples: {result['intermediate'].shape[0]}")
+            first_intermediate = True
+            start = perf_counter()
+            result = queue(text=text, stream=True, enhance=True, output_format="float")
+            with log_duration("streaming"):
+                while result["status"] not in ["complete", "error"]:
+                    await asyncio.sleep(0.02)
+                    result = queue(id=result["id"])
+                    if result.get("intermediate", None) is not None:
+                        if first_intermediate:
+                            logger.info(f"First intermediate received in {human_duration(perf_counter() - start)}")
+                            first_intermediate = False
+                        logger.info(f"Number of samples: {result['intermediate'].shape[0]}")
 
-        save_test_audio(
-            result["result"],
-            "xtts2_streaming_task",
-            sample_rate=48000
-        )
-        # Clean up
-        queue.shutdown()
-        tasks = asyncio.all_tasks(loop)
-        for task in tasks:
-            task.cancel()
-        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-        loop.close()
+            save_test_audio(
+                result["result"],
+                "xtts2_streaming_task",
+                sample_rate=48000
+            )
+
+            # Clean up
+            await queue.shutdown()
+
+    AsyncRunner(execute_test).run(debug=True)

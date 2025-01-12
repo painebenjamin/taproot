@@ -190,6 +190,7 @@ class DispatcherConfig(ServerConfig):
     task_config: Optional[Dict[str, TaskQueueConfig]] = None # Per-task configuration
     task_allow_list: Optional[List[str]] = None # Allowed tasks
     task_denylist: Optional[List[str]] = None # Disallowed tasks
+    overseer_addresses: Optional[List[str]] = None # Addresses of overseers
 
 class DispatcherConfigDict(ServerConfigDict):
     """

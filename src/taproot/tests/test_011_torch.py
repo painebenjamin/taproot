@@ -1,10 +1,11 @@
 import sys
+import asyncio
 
-from typing import cast, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from taproot import Tap, Task
 from taproot.payload import *
-from taproot.util import debug_logger
+from taproot.util import debug_logger, AsyncRunner
 
 class TorchTest(Task):
     task = "torch_test"
@@ -54,17 +55,20 @@ def test_torch() -> None:
     """
     Tests parallel torch usage.
     """
-    num_requests = 3 if sys.platform == "win32" else 7
-    with debug_logger():
-        with Tap.local(
-            max_workers=num_requests,
-            use_multiprocessing=sys.platform != "win32"
-        ) as tap:
-            results = tap.parallel(*[
-                cast(TaskPayload, {"task": "torch_test", "parameters": {"x": i}})
-                for i in range(num_requests)
-            ])
-            assert len(results) == num_requests
-            for i, result in enumerate(results):
-                assert isinstance(result, float)
-                assert -(i+1) <= result <= i+1
+    async def execute_test() -> None:
+        with debug_logger():
+            num_requests = 3 if sys.platform == "win32" else 7
+            async with Tap.local(
+                max_workers=num_requests,
+                use_multiprocessing=sys.platform != "win32"
+            ) as tap:
+                results = await asyncio.gather(*[
+                    tap("torch_test", x=i)
+                    for i in range(num_requests)
+                ])
+                assert len(results) == num_requests
+                for i, result in enumerate(results):
+                    assert isinstance(result, float)
+                    assert -(i+1) <= result <= i+1
+
+    AsyncRunner(execute_test).run(debug=True)

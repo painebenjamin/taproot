@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import os
 import sys
-import asyncio
-import nest_asyncio # type: ignore[import-untyped]
 
-from typing import Any, Iterable, List, Optional, Union, Callable, Coroutine, Dict, Tuple, Iterator, TYPE_CHECKING
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    TYPE_CHECKING
+)
 
 from math import ceil, log10
 from itertools import islice
@@ -30,7 +39,6 @@ __all__ = [
     "chunk_bytes",
     "chunk_iterable",
     "timed_lru_cache",
-    "asyncio_run",
     "get_step_callback",
     "get_step_iterator",
     "sliding_windows",
@@ -40,7 +48,6 @@ __all__ = [
     "floor_power",
     "get_continuation_depth",
     "get_parameters_from_result",
-    "async_input",
     "package_is_available",
     "get_secret"
 ]
@@ -347,35 +354,6 @@ def timed_lru_cache(
     else:
         return wrapper_cache(_func)
 
-def asyncio_run(
-    future: Union[asyncio.Future[Any], asyncio.Task[Any], Coroutine[Any, Any, Any]],
-    *,
-    as_task: bool=True,
-) -> Any:
-    """
-    A better implementation of `asyncio.run`.
-
-    :param future: A future or task or call of an async method.
-    :param as_task: Forces the future to be scheduled as task (needed for e.g. aiohttp).
-    :return: The result of the future.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:  # no event loop running:
-        loop = asyncio.new_event_loop()
-        if not as_task or isinstance(future, asyncio.Task):
-            task = future
-        else:
-            task = loop.create_task(future) # type: ignore[arg-type]
-        return loop.run_until_complete(task)
-    else:
-        nest_asyncio.apply(loop)
-        if not as_task or isinstance(future, asyncio.Task):
-            task = future
-        else:
-            task = loop.create_task(future) # type: ignore[arg-type]
-        return asyncio.run(task) # type: ignore[arg-type]
-
 def get_step_callback(
     overall_steps: int,
     task: Optional[str] = None,
@@ -652,17 +630,6 @@ def get_parameters_from_result(
         ]
     else:
         return result
-
-async def async_input(message: str = "") -> str:
-    """
-    Gets input from stdin in an async-friendly manner.
-
-    :param message: The message to display before getting input.
-    :return: The input from stdin.
-    """
-    write = lambda: sys.stdout.write(message + " ")
-    await asyncio.get_event_loop().run_in_executor(None, write)
-    return await asyncio.get_event_loop().run_in_executor(None, sys.stdin.readline)
 
 def package_is_available(package_name: str) -> bool:
     """

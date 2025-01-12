@@ -5,7 +5,6 @@ from taproot.util import (
     PretrainedModelMixin,
     logger,
     get_torch_dtype,
-    empty_cache,
     maybe_use_tqdm
 )
 
@@ -129,7 +128,6 @@ class Loader:
         """
         for model_name in list(self.get_loadable_names()):
             self.unload_by_name(model_name)
-        empty_cache()
 
     def offload(self) -> None:
         """

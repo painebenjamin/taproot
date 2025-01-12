@@ -6,6 +6,7 @@ from taproot.util import (
     debug_logger,
     log_duration,
     get_test_server_addresses,
+    AsyncRunner,
 )
 
 def test_executor() -> None:
@@ -40,62 +41,59 @@ def test_executor() -> None:
             Execute the test
             """
             # Run the executor
-            task = asyncio.create_task(executor.run())
-            await asyncio.sleep(0.01)
+            async with executor:
+                # Configure the client
+                client.address = executor.address
+                client.encryption_key = executor.encryption_key
+                client.certfile = executor.certfile
 
-            # Configure the client
-            client.address = executor.address
-            client.encryption_key = executor.encryption_key
-            client.certfile = executor.certfile
+                # Send the task payloads
+                try:
+                    # Base test
+                    task_payload["parameters"]["delay"] = 0.0
+                    task_payload["id"] = generate_id()
+                    with log_duration("Base test"):
+                        assert await client(task_payload) == "Hello, World!"
 
-            # Send the task payloads
-            try:
-                # Base test
-                task_payload["parameters"]["delay"] = 0.0
-                task_payload["id"] = generate_id()
-                with log_duration("Base test"):
-                    assert await client(task_payload) == "Hello, World!"
+                    # Parallel test
+                    task_payload["parameters"]["delay"] = 1.0
+                    task_payload["id"] = generate_id()
+                    with log_duration("Parallel test"):
+                        result = await asyncio.gather(
+                            client(task_payload),
+                            client(task_payload),
+                        )
+                    assert result == ["Hello, World!", "Hello, World!"]
 
-                # Parallel test
-                task_payload["parameters"]["delay"] = 1.0
-                task_payload["id"] = generate_id()
-                with log_duration("Parallel test"):
-                    result = await asyncio.gather(
-                        client(task_payload),
-                        client(task_payload),
-                    )
-                assert result == ["Hello, World!", "Hello, World!"]
+                    # Do it again to ensure the result is cached
+                    with log_duration("Parallel test"):
+                        result = await asyncio.gather(
+                            client(task_payload),
+                            client(task_payload),
+                        )
+                    assert result == ["Hello, World!", "Hello, World!"]
 
-                # Do it again to ensure the result is cached
-                with log_duration("Parallel test"):
-                    result = await asyncio.gather(
-                        client(task_payload),
-                        client(task_payload),
-                    )
-                assert result == ["Hello, World!", "Hello, World!"]
+                    # Ensure activity tracking is working
+                    status = await client.command("status", data=f"{task_payload['client_id']}:{task_payload['id']}")
+                    logger.debug(f"Received status: {status}")
+                    assert status["activity"] > 0.3
+                    assert status["queued"] == 0
 
-                # Ensure activity tracking is working
-                status = await client.command("status", data=f"{task_payload['client_id']}:{task_payload['id']}")
-                logger.debug(f"Received status: {status}")
-                assert status["activity"] > 0.3
-                assert status["queued"] == 0
+                    # Could still be active if it the queue hasn't ticked since last call
+                    assert status["status"] in ["active", "idle"]
+                    assert status["has_id"], f"Expected an id in the status: {status}"
 
-                # Could still be active if it the queue hasn't ticked since last call
-                assert status["status"] in ["active", "idle"]
-                assert status["has_id"], f"Expected an id in the status: {status}"
-
-                # Finally test reported capability
-                capability = await client.command("capability")
-                logger.debug(f"Received capability: {capability}")
-            except Exception as e:
-                logger.error(f"Failed on address {executor.address}")
-                raise e
-            finally:
-                await client.command("exit")
-                # Stop the executor
-                task.cancel()
-                await asyncio.sleep(0.01)
+                    # Finally test reported capability
+                    capability = await client.command("capability")
+                    logger.debug(f"Received capability: {capability}")
+                except Exception as e:
+                    logger.error(f"Failed on address {executor.address}")
+                    raise e
+                finally:
+                    await client.command("exit")
+                    # Stop the executor
+                    await asyncio.sleep(0.01)
 
         for address in get_test_server_addresses():
             executor.address = address
-            asyncio.run(execute_test())
+            AsyncRunner(execute_test).run(debug=True)

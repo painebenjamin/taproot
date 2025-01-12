@@ -2,9 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
-from typing import Any, Optional, Dict, List, Tuple, Union, Iterator, cast
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    cast
+)
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from omegaconf.basecontainer import BaseContainer
 
 from ..payload import *
@@ -43,6 +52,30 @@ class Overseer(ConfigServer):
         self.dispatchers = {}
         self.capabilities = {}
 
+    """Private Methods"""
+
+    async def _update_cluster_capability(self, client: Client) -> None:
+        """
+        Updates the cluster capability with the dispatcher's capability.
+        """
+        try:
+            capability = await client(self.pack_control_message("capability"), timeout=1.0, retries=0)
+            self.capabilities[client.address] = capability
+        except Exception as e:
+            logger.warning(f"Failed to update cluster capability for {client.address}: {e}")
+            # Retry in a bit
+            await asyncio.sleep(15.0)
+            return await self._update_cluster_capability(client)
+
+    def _update_cluster_capability_done(self, task: asyncio.Task[Any]) -> None:
+        """
+        Handles the completion of the update cluster capability task.
+        """
+        try:
+            task.result()
+        except Exception as e:
+            logger.error(f"Failed to update cluster capability: {e}")
+
     """Public Methods"""
 
     def register_dispatcher(self, address: str, resolve_addresses: bool = True) -> None:
@@ -54,7 +87,8 @@ class Overseer(ConfigServer):
         client = self.get_client_for_address(address)
         self.dispatchers[address] = (client, resolve_addresses)
         logger.info(f"Added dispatcher {address}.")
-        asyncio.create_task(self.update_cluster_capability(client))
+        task = asyncio.create_task(self._update_cluster_capability(client))
+        task.add_done_callback(self._update_cluster_capability_done)
 
     def register_dispatcher_from_config(
         self,
@@ -74,7 +108,8 @@ class Overseer(ConfigServer):
         self.dispatchers[client.address] = (client, bool(client.config.resolve_addresses))
 
         logger.info(f"Added dispatcher {client.address}.")
-        asyncio.create_task(self.update_cluster_capability(client))
+        task = asyncio.create_task(self._update_cluster_capability(client))
+        task.add_done_callback(self._update_cluster_capability_done)
 
     def unregister_dispatcher(self, address: str) -> None:
         """
@@ -91,19 +126,6 @@ class Overseer(ConfigServer):
         """
         self.dispatchers.clear()
         self.capabilities.clear()
-
-    async def update_cluster_capability(self, client: Client) -> None:
-        """
-        Updates the cluster capability with the dispatcher's capability.
-        """
-        try:
-            capability = await client(self.pack_control_message("capability"), timeout=1.0, retries=0)
-            self.capabilities[client.address] = capability
-        except Exception as e:
-            logger.warning(f"Failed to update cluster capability for {client.address}: {e}")
-            # Retry in a bit
-            await asyncio.sleep(15.0)
-            return await self.update_cluster_capability(client)
 
     @property
     def dispatcher_score_timeout(self) -> Optional[float]:
@@ -175,12 +197,12 @@ class Overseer(ConfigServer):
         self._cached_hash = current_hash
         return self._cluster_capability
 
-    @contextmanager
-    def context(self) -> Iterator[None]:
+    @asynccontextmanager
+    async def context(self) -> AsyncIterator[None]:
         """
         Runtime context for the overseer.
         """
-        with super().context():
+        async with super().context():
             if self.config.dispatchers:
                 for dispatcher in self.config.dispatchers:
                     self.register_dispatcher_from_config(dispatcher)

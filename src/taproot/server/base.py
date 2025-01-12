@@ -13,7 +13,7 @@ import websockets
 
 from typing import (
     Any,
-    Iterator,
+    AsyncIterator,
     List,
     Optional,
     Tuple,
@@ -21,9 +21,9 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from async_lru import alru_cache
-from contextlib import contextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, AsyncExitStack
 from websockets.exceptions import ConnectionClosedOK
 from websockets.asyncio.server import ServerConnection
 
@@ -31,7 +31,6 @@ from ..constants import *
 from ..payload import *
 from ..encryption import Encryption
 from ..util import (
-    asyncio_run,
     chunk_bytes,
     decode_and_unpack,
     format_address,
@@ -45,6 +44,8 @@ from ..util import (
     timed_lru_cache,
     unpack_control_message,
     MachineCapability,
+    TaskRunner,
+    ServerRunner
 )
 
 if TYPE_CHECKING:
@@ -383,20 +384,13 @@ class Server(Encryption):
         return self._processing
 
     @property
-    def manual_exit(self) -> bool:
+    def manual_exit(self) -> asyncio.Event:
         """
         Whether the server has received an exit request.
         """
         if not hasattr(self, "_manual_exit"):
-            self._manual_exit = False
+            self._manual_exit = asyncio.Event()
         return self._manual_exit
-
-    @manual_exit.setter
-    def manual_exit(self, value: bool) -> None:
-        """
-        Set whether the server has received an exit request.
-        """
-        self._manual_exit = value
 
     @property
     def use_encryption(self) -> bool:
@@ -607,6 +601,15 @@ class Server(Encryption):
             self._control_encryption.encryption_use_aesni = self.control_encryption_use_aesni
         return self._control_encryption
 
+    @property
+    def exit_stack(self) -> AsyncExitStack:
+        """
+        Exit stack for the server.
+        """
+        if not hasattr(self, "_exit_stack"):
+            self._exit_stack = AsyncExitStack()
+        return self._exit_stack
+
     """Internal methods"""
 
     def _is_ip_allowed(self, ip: str) -> bool:
@@ -679,7 +682,6 @@ class Server(Encryption):
         elif command == "status":
             return await self.status(data)
         elif command == "exit":
-            self.shutdown()
             return self._shutdown_key
         return await self.command(command, data)
 
@@ -722,8 +724,8 @@ class Server(Encryption):
 
     """Extensible methods for implementations"""
 
-    @contextmanager
-    def context(self) -> Iterator[None]:
+    @asynccontextmanager
+    async def context(self) -> AsyncIterator[None]:
         """
         Runtime context for the server.
         """
@@ -763,13 +765,19 @@ class Server(Encryption):
             "num_requests": self._num_requests,
         }
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """
         Shutdown the server. Base implementation does nothing.
         """
         logger.info(f"Shutting down {type(self).__name__} on {self.address}.")
-        self.manual_exit = True
+        self.manual_exit.set()
         return
+
+    async def post_start(self) -> None:
+        """
+        Post-startup hook.
+        """
+        pass
 
     """Public methods"""
 
@@ -834,8 +842,8 @@ class Server(Encryption):
         """
         Run the server.
         """
-        self.manual_exit = False
-        manual_exit = False
+        self.manual_exit.clear()
+        manual_exit = asyncio.Event()
 
         logger.info(f"Beginning main server loop on {self.address} for {type(self).__name__}")
         server_context = nullcontext()
@@ -892,7 +900,9 @@ class Server(Encryption):
                                 try:
                                     response = await self._handle_control_request(request)
                                     if response == self._shutdown_key:
-                                        manual_exit = True
+                                        manual_exit.set()
+                                        logger.info(f"Received exit request from {websocket.remote_address[0]}.")
+                                        response = None
                                 except Exception as e:
                                     response = e
                         elif request is not None:
@@ -925,7 +935,8 @@ class Server(Encryption):
                 handle_websocket,
                 self.host,
                 self.port,
-                ssl=self.ssl_context
+                ssl=self.ssl_context,
+                max_size=WEBSOCKET_CHUNK_SIZE,
             )
         elif not self.protocol == "memory":
             if self.protocol == "unix":
@@ -1022,10 +1033,11 @@ class Server(Encryption):
                                     else:
                                         result = await self._handle_control_request(request)
                                         if isinstance(result, str) and result == self._shutdown_key:
-                                            manual_exit = True
+                                            logger.info(f"Received exit request from {peername[0]}.")
+                                            manual_exit.set()
+                                            result = None
                                 else:
                                     logger.debug(f"Handling request, payload is of type {type(request)}")
-                                    logger.debug(f"Request: {request}")
                                     result = await self._handle_request(request)
 
                                 response = pack_and_encode(result)
@@ -1049,13 +1061,11 @@ class Server(Encryption):
                 finally:
                     await self._decrement_active_requests()
         try:
-            with self.context():
+            async with self.context():
                 async with server_context:
+                    await self.post_start()
                     self._reset_last_request_time()
-                    while True:
-                        if manual_exit or self.manual_exit:
-                            logger.info(f"{type(self).__name__} listening on {self.address} received exit request.")
-                            break
+                    while not manual_exit.is_set() and not self.manual_exit.is_set():
                         try:
                             if self.protocol in ["memory", "ws"]:
                                 # We sleep manually for these two protocols
@@ -1105,21 +1115,17 @@ class Server(Encryption):
                     server.close()
             except Exception as e:
                 pass
+            try:
+                logger.debug(f"Shutting down {type(self).__name__} on {self.address}.")
+                await self.shutdown()
+            except Exception as e:
+                logger.error(f"{type(self).__name__}: Error shutting down: {e}")
             finally:
                 if self.protocol == "unix" and self.path is not None and os.path.exists(self.path):
                     try:
                         os.remove(self.path)
                     except:
                         pass
-                self.shutdown()
-
-    def serve(self) -> None:
-        """
-        Serve the server synchronously.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.run())
 
     def get_client(self) -> Client:
         """
@@ -1145,7 +1151,7 @@ class Server(Encryption):
             client.control_encryption_use_aesni = self.control_encryption_use_aesni
         return client
 
-    async def exit(self, timeout: Optional[float]=0.05) -> None:
+    async def exit(self, timeout: Optional[float]=0.1, retries: int=0) -> None:
         """
         Exit the server.
         """
@@ -1154,43 +1160,11 @@ class Server(Encryption):
         try:
             await client(
                 self.pack_control_message("exit"),
+                retries=retries,
                 timeout=timeout
             )
         except ConnectionClosedOK:
             pass
-        logger.debug("Exit request was successful.")
-
-    def graceful_exit(self, timeout: Optional[float]=0.05) -> bool:
-        """
-        Gracefully exit the server.
-        This is more complicated than it seems due to multi-processing,
-        the most robust way is to make a client and then use it to request
-        an exit.
-        """
-        try:
-            asyncio.get_running_loop().run_until_complete(
-                self.exit(timeout=timeout)
-            )
-            return True
-        except:
-            return False
-
-    def wait_for_connectivity(
-        self,
-        timeout: Optional[float]=0.1,
-        timeout_growth: Optional[float]=0.05,
-        retries: int=15,
-    ) -> None:
-        """
-        Wait for the server to be running and can be connected to.
-        """
-        assert asyncio_run(
-            self.assert_connectivity(
-                timeout=timeout,
-                timeout_growth=timeout_growth,
-                retries=retries,
-            )
-        ) is None
 
     async def assert_connectivity(
         self,
@@ -1236,3 +1210,37 @@ class Server(Encryption):
         except Exception as e:
             logger.warning(f"Failed to get status: {type(e).__name__}({e})")
             return default_result
+
+    def serve(
+        self,
+        install_signal_handlers: bool=True,
+        debug: bool=False
+    ) -> None:
+        """
+        Run this server synchronously.
+        """
+        ServerRunner(self).run(
+            install_signal_handlers=install_signal_handlers,
+            debug=debug
+        )
+
+    """Async context manager"""
+
+    async def __aenter__(self) -> Self:
+        """
+        Server async context manager enter.
+        """
+        await self.exit_stack.enter_async_context(TaskRunner(self.run()))
+        await self.assert_connectivity()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Any,
+        exc_value: Any,
+        traceback: Any
+    ) -> None:
+        """
+        Server async context manager exit.
+        """
+        await self.exit_stack.aclose()

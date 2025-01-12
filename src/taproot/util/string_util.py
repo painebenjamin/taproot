@@ -14,6 +14,7 @@ __all__ = [
     "random_ascii_string",
     "human_size",
     "human_duration",
+    "trim_html_whitespace",
     "trim_docstring",
     "indent_docstring",
     "simplify_quotations",
@@ -198,6 +199,15 @@ def indent_docstring(text: str, indent: int=2) -> str:
     """
     trimmed = trim_docstring(text)
     return '\n'.join([' ' * indent + line for line in trimmed.split('\n')])
+
+def trim_html_whitespace(html: str) -> str:
+    """
+    Trims excess whitespace in HTML.
+    """
+    html = re.sub(r">\s+<", "><", html)
+    html = re.sub(r"\s{2,}", " ", html)
+    html = re.sub(r"(?<=>)\s+|\s+(?=<)", "", html)
+    return html
 
 single_quote_regex = re.compile(r"[‚‘’′‵`‛]")
 double_quote_regex = re.compile(r"[„“”″‶″‴〃‷]")

@@ -1,17 +1,17 @@
 import asyncio
 from taproot import Tap
-from taproot.util import debug_logger, asyncio_run, time_counter
+from taproot.util import debug_logger, time_counter, AsyncRunner
 
 def test_parallel() -> None:
     """
     Tests running multiple tasks in parallel
     """
-    with debug_logger() as logger:
-        with Tap.local(
-            use_multiprocessing=True,
-            max_workers=10
-        ) as tap:
-            async def execute_test() -> None:
+    async def execute_test() -> None:
+        with debug_logger() as logger:
+            async with Tap.local(
+                use_multiprocessing=True,
+                max_workers=10
+            ) as tap:
                 """
                 Execute the test
                 """
@@ -46,4 +46,4 @@ def test_parallel() -> None:
                 assert second_duration <= 3.0
                 logger.info(f"Second duration: {second_duration}")
 
-            asyncio_run(execute_test())
+    AsyncRunner(execute_test).run(debug=True)

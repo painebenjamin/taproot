@@ -5,13 +5,13 @@ import sys
 from setuptools import find_packages, setup
 
 deps = [
+    "aioconsole",
     "async-lru",
     "click",
     "dbgpu[fuzz]",
     "docstring_parser",
     "httptools",
     "msgpack",
-    "nest_asyncio",
     "omegaconf",
     "packaging",
     "pillow",
@@ -32,15 +32,19 @@ tool_deps = [
     "beautifulsoup4",
 ]
 
-console = [
+console_deps = [
     "tabulate",
     "termcolor",
     "tqdm"
 ]
 
+uv_deps = [
+    "uvloop>=0.18",
+]
+
 setup(
     name="taproot",
-    version="0.1.5",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
+    version="0.2.0.dev0",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
     description="Taproot is a seamlessly scalable AI/ML inference engine designed for deployment across hardware clusters with disparate capabilities.",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -55,7 +59,8 @@ setup(
     extras_require={
         "video": video_deps,
         "tools": tool_deps,
-        "console": console,
+        "console": console_deps,
+        "uv": uv_deps,
     },
     entry_points={
         "console_scripts": [

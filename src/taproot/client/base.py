@@ -510,14 +510,6 @@ class Client(Encryption):
             encryption=self.control_encryption
         )
 
-    def call(self, *args: Any, **kwargs: Any) -> Any:
-        """
-        Calls the taproot dispatcher synchronously.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self.__call__(*args, **kwargs))
-
     async def command(
         self,
         command: str,
@@ -566,6 +558,7 @@ class Client(Encryption):
                     open_timeout=timeout,
                     close_timeout=timeout,
                     ping_timeout=timeout,
+                    max_size=WEBSOCKET_CHUNK_SIZE,
                     additional_headers=self.websocket_headers
                 ) as websocket:
                     logger.debug(f"Sending message to {self.address} (timeout: {timeout}).")

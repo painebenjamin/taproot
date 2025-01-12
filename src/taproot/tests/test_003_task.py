@@ -3,8 +3,11 @@ import time
 import asyncio
 
 from taproot import Task, TaskQueue
-from taproot.util import debug_logger
 from taproot.constants import NOTSET
+from taproot.util import (
+    debug_logger,
+    AsyncRunner,
+)
 
 class TaskTestSquare(Task):
     """
@@ -52,110 +55,127 @@ def test_task() -> None:
         assert catalog["task_test_square"]["models"][None]["task"]()(x=3) == 9
 
 def test_task_queue() -> None:
-    with debug_logger() as logger:
-        # Create a task queue
-        task_queue = TaskQueue({"task": "task_test_square"})
+    # Test the task queue
+    async def execute_test() -> None:
+        with debug_logger() as logger:
+            # Create a task queue
+            task_queue = TaskQueue({"task": "task_test_square"})
+            task_queue.start()
+            await task_queue.wait_for_task()
 
-        # Arguments for the task
-        queue_kwargs = {"x": 3}
+            # Arguments for the task
+            queue_kwargs = {"x": 3}
 
-        # Queue the task
-        queue_result = task_queue(**queue_kwargs)
-        assert queue_result["status"] == "new"
-        # Store the ID
-        queue_id = queue_result["id"]
+            # Queue the task
+            queue_result = task_queue(**queue_kwargs)
+            assert queue_result["status"] == "queued"
+            # Store the ID
+            queue_id = queue_result["id"]
 
-        # Sleep for a bit
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(asyncio.sleep(0.1))
+            # Sleep for a bit
+            await asyncio.sleep(0.1)
 
-        # By now it should be complete
-        queue_result_complete = task_queue(**queue_kwargs)
-        assert queue_result_complete["id"] == queue_id # Should be the same ID
-        assert queue_result_complete["status"] == "complete"
-        assert queue_result_complete["result"] == 9
+            # By now it should be complete
+            queue_result_complete = task_queue(**queue_kwargs)
+            assert queue_result_complete["id"] == queue_id # Should be the same ID
+            assert queue_result_complete["status"] == "complete"
+            assert queue_result_complete["result"] == 9
 
-        # Queue with the same arguments and get an immediate result
-        queue_result_cached = task_queue(**queue_kwargs)
-        assert queue_result_cached["id"] == queue_id
-        assert queue_result_cached["status"] == "complete"
-        assert queue_result_cached["result"] == 9
+            # Queue with the same arguments and get an immediate result
+            queue_result_cached = task_queue(**queue_kwargs)
+            assert queue_result_cached["id"] == queue_id
+            assert queue_result_cached["status"] == "complete"
+            assert queue_result_cached["result"] == 9
 
-        # Now queue with an IO-blocking task
-        delayed_echo_queue = TaskQueue({"task": "echo"})
+            # Now queue with an IO-blocking task
+            delayed_echo_queue = TaskQueue({"task": "echo"})
+            delayed_echo_queue.start()
+            await delayed_echo_queue.wait_for_task()
 
-        # Queue a task
-        delayed_echo_result = delayed_echo_queue(
-            message="Hello, world!",
-            delay=1.0
-        )
-        assert delayed_echo_result["status"] == "new"
+            # Queue a task
+            delayed_echo_result = delayed_echo_queue(
+                message="Hello, world!",
+                delay=1.0
+            )
+            assert delayed_echo_result["status"] == "queued"
 
-        # Save the ID
-        delayed_echo_id = delayed_echo_result["id"]
+            # Save the ID
+            delayed_echo_id = delayed_echo_result["id"]
 
-        # Sleep for a bit
-        loop.run_until_complete(asyncio.sleep(0.2))
+            # Sleep for a bit
+            await asyncio.sleep(0.2)
 
-        # By now it should be active, but not complete
-        # Get it using its ID only
-        delayed_echo_result_active = delayed_echo_queue(id=delayed_echo_id)
-        assert delayed_echo_result_active["status"] == "active"
-        assert delayed_echo_result_active["result"] is None
+            # By now it should be active, but not complete
+            # Get it using its ID only
+            delayed_echo_result_active = delayed_echo_queue(id=delayed_echo_id)
+            assert delayed_echo_result_active["status"] == "active"
+            assert delayed_echo_result_active["result"] is None
 
-        # Sleep for a bit
-        loop.run_until_complete(asyncio.sleep(0.9))
+            # Sleep for a bit
+            await asyncio.sleep(0.9)
 
-        # By now it should be complete
-        delayed_echo_result_complete = delayed_echo_queue(id=delayed_echo_id)
-        assert delayed_echo_result_complete["status"] == "complete"
-        assert delayed_echo_result_complete["result"] == "Hello, world!"
+            # By now it should be complete
+            delayed_echo_result_complete = delayed_echo_queue(id=delayed_echo_id)
+            assert delayed_echo_result_complete["status"] == "complete"
+            assert delayed_echo_result_complete["result"] == "Hello, world!"
 
-        # Run it again and get the cached result
-        delayed_echo_result_cached = delayed_echo_queue(id=delayed_echo_id)
-        assert delayed_echo_result_cached["status"] == "complete"
-        assert delayed_echo_result_cached["result"] == "Hello, world!"
+            # Run it again and get the cached result
+            delayed_echo_result_cached = delayed_echo_queue(id=delayed_echo_id)
+            assert delayed_echo_result_cached["status"] == "complete"
+            assert delayed_echo_result_cached["result"] == "Hello, world!"
 
-        # Assert the activity has been tracked
-        assert delayed_echo_queue.activity > 0.4
-        assert task_queue.activity < 0.4
+            # Assert the activity has been tracked
+            assert delayed_echo_queue.activity > 0.4
+            assert task_queue.activity < 0.4
+
+            # Gracefully stop the task queue
+            await task_queue.shutdown()
+
+    AsyncRunner(execute_test).run(debug=True)
 
 def test_task_with_steps() -> None:
-    with debug_logger() as logger:
-        # Create a task queue
-        task_queue = TaskQueue({"task": "task_test_square", "model": "steps"})
+    async def execute_test() -> None:
+        with debug_logger() as logger:
+            # Create a task queue
+            task_queue = TaskQueue({"task": "task_test_square", "model": "steps"})
+            task_queue.start()
+            await task_queue.wait_for_task()
 
-        # Arguments for the task
-        queue_kwargs = {"x": 4, "num_steps": 10}
+            # Arguments for the task
+            queue_kwargs = {"x": 4, "num_steps": 10}
 
-        # Queue the task
-        queue_result = task_queue(**queue_kwargs)
-        assert queue_result["status"] == "new"
-        # Store the ID
-        queue_id = queue_result["id"]
+            # Queue the task
+            queue_result = task_queue(**queue_kwargs)
+            assert queue_result["status"] == "queued"
+            # Store the ID
+            queue_id = queue_result["id"]
 
-        # Sleep for a bit, this will run for ~0.2 seconds
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(asyncio.sleep(0.1))
+            # Sleep for a bit, this will run for ~0.2 seconds
+            await asyncio.sleep(0.1)
 
-        # By now it should be going
-        queue_result_active = task_queue(**queue_kwargs)
-        assert queue_result_active["id"] == queue_id # Should be the same ID
-        assert queue_result_active["status"] == "active"
-        assert 0.0 < queue_result_active["progress"] <= 0.5
-        assert isinstance(queue_result_active["rate"], float)
-        assert 2.5 < queue_result_active["rate"] < 5.5 # Theoretical rate is 5.0
-        assert queue_result_active["result"] is None
-        assert isinstance(queue_result_active["intermediate"], int)
-        assert queue_result_active["intermediate"] >= 1
+            # By now it should be going
+            queue_result_active = task_queue(**queue_kwargs)
+            assert queue_result_active["id"] == queue_id # Should be the same ID
+            assert queue_result_active["status"] == "active"
+            assert 0.0 < queue_result_active["progress"] <= 0.5
+            assert isinstance(queue_result_active["rate"], float)
+            assert 2.5 < queue_result_active["rate"] < 5.5 # Theoretical rate is 5.0
+            assert queue_result_active["result"] is None
+            assert isinstance(queue_result_active["intermediate"], int)
+            assert queue_result_active["intermediate"] >= 1
 
-        # Wait for the result
-        loop.run_until_complete(asyncio.sleep(0.2))
-        queue_result_complete = task_queue(**queue_kwargs)
-        assert queue_result_complete["id"] == queue_id # Should be the same ID
-        assert queue_result_complete["status"] == "complete"
-        assert queue_result_complete["result"] == 16
-        assert queue_result_complete["progress"] == 1.0
-        assert queue_result_complete["intermediate"] is None
-        assert isinstance(queue_result_complete["rate"], float)
-        assert 2.5 < queue_result_complete["rate"] < 5.5 # Theoretical rate is 5.0
+            # Wait for the result
+            await asyncio.sleep(0.2)
+            queue_result_complete = task_queue(**queue_kwargs)
+            assert queue_result_complete["id"] == queue_id # Should be the same ID
+            assert queue_result_complete["status"] == "complete"
+            assert queue_result_complete["result"] == 16
+            assert queue_result_complete["progress"] == 1.0
+            assert queue_result_complete["intermediate"] is None
+            assert isinstance(queue_result_complete["rate"], float)
+            assert 2.5 < queue_result_complete["rate"] < 5.5 # Theoretical rate is 5.0
+
+            # Gracefully stop the task queue
+            await task_queue.shutdown()
+
+    AsyncRunner(execute_test).run(debug=True)

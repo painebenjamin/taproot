@@ -543,20 +543,20 @@ class Decoder(nn.Module):
         f0 = self.f0_conv(f0_curve.unsqueeze(1))
         n = self.n_conv(n.unsqueeze(1))
 
-        x = torch.cat([asr, f0, n], axis=1) # type: ignore[call-overload]
+        x = torch.cat([asr, f0, n], dim=1)
         x = self.encode(x, s)
 
         asr_res = self.asr_res(asr)
         res = True
         for block in self.decode:
             if res:
-                x = torch.cat( # type: ignore[call-overload]
+                x = torch.cat(
                     [x, asr_res, f0, n],
-                    axis=1
+                    dim=1
                 )
             x = block(x, s)
             if block.upsample_type is not None:
                 res = False
 
         x = self.generator(x, s, f0_curve)
-        return x # type: ignore[no-any-return]
+        return x

@@ -5,10 +5,10 @@ import traceback
 
 from typing import (
     Any,
+    AsyncIterator,
     Callable,
     Coroutine,
     Dict,
-    Iterator,
     List,
     Optional,
     Tuple,
@@ -16,22 +16,21 @@ from typing import (
     TYPE_CHECKING
 )
 from typing_extensions import Literal
-from contextlib import contextmanager, ExitStack
+from contextlib import asynccontextmanager, AsyncExitStack
 
 from ..constants import *
 from ..payload import *
 from ..util import (
     find_free_memory_port,
-    find_free_unix_socket,
     find_free_port,
-    pack_control_message,
-    get_parameter_metadata,
-    get_payload_id,
-    parse_address,
-    is_absolute_address,
-    get_absolute_address_from_relative,
+    find_free_unix_socket,
     generate_id,
+    get_absolute_address_from_relative,
+    get_parameter_metadata,
+    is_absolute_address,
     logger,
+    pack_control_message,
+    parse_address,
 )
 from ..config import *
 from .base import Client
@@ -46,10 +45,10 @@ class Tap(ConfigMixin):
     Taps into a taproot cluster.
     """
     config_class = TapConfig
-    exit_stack: ExitStack
 
     """Private properties"""
     _executor_addresses: Dict[str, str]
+    _executor_locks: Dict[str, asyncio.Lock]
 
     """Default properties"""
 
@@ -565,25 +564,40 @@ class Tap(ConfigMixin):
             self._executor_addresses = {}
         return self._executor_addresses
 
+    @property
+    def executor_locks(self) -> Dict[str, asyncio.Lock]:
+        """
+        Returns a dictionary of executor locks.
+        """
+        if not hasattr(self, "_executor_locks"):
+            self._executor_locks = {}
+        return self._executor_locks
+
+    @property
+    def exit_stack(self) -> AsyncExitStack:
+        """
+        Returns the exit stack.
+        """
+        if not hasattr(self, "_exit_stack"):
+            self._exit_stack = AsyncExitStack()
+        return self._exit_stack
+
     """Context"""
 
-    def __enter__(self) -> Tap:
+    async def __aenter__(self) -> Tap:
         """
         Enters the context.
         """
-        self.exit_stack = ExitStack()
         if self.use_local:
             dispatcher = self._get_local_dispatcher()
-            self.exit_stack.enter_context(dispatcher) # type: ignore[arg-type]
-            dispatcher.wait_for_connectivity()
+            await self.exit_stack.enter_async_context(dispatcher)
         return self
 
-    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         """
         Exits the context.
         """
-        if getattr(self, "exit_stack", None):
-            self.exit_stack.close()
+        await self.exit_stack.aclose()
 
     """Private methods"""
 
@@ -669,60 +683,6 @@ class Tap(ConfigMixin):
 
     """Public methods"""
 
-    def call(
-        self,
-        *args: Any,
-        timeout: Optional[Union[int, float]]=None,
-        timeout_response: Any=NOTSET,
-        target_timeout: Optional[Union[int, float]]=None,
-        retries: int=CLIENT_MAX_RETRIES,
-        **kwargs: Any
-    ) -> Any:
-        """
-        Calls the taproot dispatcher synchronously.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(
-            self.__call__(
-                *args,
-                timeout=timeout,
-                timeout_response=timeout_response,
-                target_timeout=target_timeout,
-                retries=retries,
-                **kwargs
-            )
-        )
-
-    def parallel(
-        self,
-        *payloads: TaskPayload,
-        timeout: Optional[Union[int, float]]=None,
-        timeout_response: Any=NOTSET,
-        target_timeout: Optional[Union[int, float]]=None,
-        retries: int=CLIENT_MAX_RETRIES,
-    ) -> List[Any]:
-        """
-        Calls the taproot dispatcher in parallel synchronously.
-        """
-        for payload in payloads:
-            parameters = payload.get("parameters", None)
-            payload["id"] = get_payload_id({} if not isinstance(parameters, dict) else parameters)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(
-            asyncio.gather(*[
-                self.__call__(
-                    payload["task"],
-                    model=payload.get("model", None),
-                    timeout=timeout,
-                    timeout_response=timeout_response,
-                    **self._get_parameters_from_payload(payload)
-                )
-                for payload in payloads
-            ])
-        )
-
     async def get_executor_address(
         self,
         task: str,
@@ -737,8 +697,12 @@ class Tap(ConfigMixin):
         Gets the executor address for a task.
         """
         task_key = f"{task}:{model}"
-        if task_key in self.executor_addresses:
-            return self.executor_addresses[task_key], True
+        if task_key not in self.executor_locks:
+            self.executor_locks[task_key] = asyncio.Lock()
+
+        async with self.executor_locks[task_key]:
+            if task_key in self.executor_addresses:
+                return self.executor_addresses.pop(task_key), True
 
         # First we need to get the metadata for the parameters.
         metadata_payload: TaskMetadataPayload = {
@@ -874,6 +838,14 @@ class Tap(ConfigMixin):
                 )
             else:
                 raise e
+
+        if result["status"] in ["error", "complete"] and cached_executor:
+            # Return the cached executor to the pool if the task is complete or errored.
+            task_key = task
+            if model:
+                task_key = f"{task}:{model}"
+            self.executor_addresses[task_key] = executor_address
+
         if wait_for_result:
             if continuation:
                 continuation_result = result.get("continuation", None)
@@ -949,8 +921,8 @@ class Tap(ConfigMixin):
         return result
 
     @classmethod
-    @contextmanager
-    def local(
+    @asynccontextmanager
+    async def local(
         cls,
         remote: Optional[ClientConfig]=None,
         protocol: Literal["memory", "tcp", "unix", "ws"]="memory",
@@ -963,7 +935,7 @@ class Tap(ConfigMixin):
         task_config: Optional[Dict[str, TaskQueueConfigDict]]=None,
         static_executors: List[ExecutorConfigDict]=[],
         task_auto_executors: Optional[Dict[str, int]]=None,
-    ) -> Iterator[Tap]:
+    ) -> AsyncIterator[Tap]:
         """
         Returns the default tap instance.
         """
@@ -1014,23 +986,5 @@ class Tap(ConfigMixin):
             "static_executor_config": static_executors,
         }
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        dispatcher = Dispatcher(local_config) # type:ignore[arg-type]
-        task = loop.create_task(dispatcher.run())
-        loop.run_until_complete(asyncio.sleep(0.001))
-
-        yield Tap({"local": local_config, "remote": remote})
-
-        dispatcher.graceful_exit()
-        if not task.done():
-            task.cancel()
-        loop.run_until_complete(asyncio.sleep(0.001))
-        try:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        except Exception as e:
-            logger.warning(f"Error during cleanup: {e}")
-        loop.close()
+        async with Tap({"local": local_config, "remote": remote}) as tap:
+            yield tap

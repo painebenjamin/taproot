@@ -22,7 +22,6 @@ from taproot.util import (
     to_pil_array,
     serialize_image,
     get_seed,
-    catch_output,
     to_pil_array,
     image_tiles,
     maybe_use_tqdm,
@@ -482,7 +481,7 @@ class LlamaTextGeneration(Task):
         """
         Unload the model
         """
-        with catch_output() as output:
+        if hasattr(self, "llama"):
             del self.llama
 
     def __call__( # type: ignore[override]
@@ -566,116 +565,109 @@ class LlamaTextGeneration(Task):
         else:
             image_path = None
 
-        with catch_output() as output:
-            try:
-                role_object = self.get_role(role)
-                conversation = role_object.get_conversation(
-                    prompt,
-                    image=image_path,
-                    history=history
-                )
-                logger.debug(
-                    f"Creating chat generation with conversation: {conversation}, tools {tools}, tool choice {tool_choice}"
-                )
-                stream_first_generation = False if tool_choice is not None and tool_choice != "auto" else stream
-                generation = self.llama.create_chat_completion(
-                    messages=self.format_conversation(conversation), # type: ignore[arg-type,unused-ignore]
-                    seed=get_seed(seed),
-                    max_tokens=max_tokens,
-                    stop=self.get_stop_tokens(stop),
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    min_p=min_p,
-                    typical_p=typical_p,
-                    presence_penalty=presence_penalty,
-                    frequency_penalty=frequency_penalty,
-                    repeat_penalty=repeat_penalty,
-                    stream=stream_first_generation,
-                    tool_choice=tool_choice, # type: ignore[arg-type,unused-ignore]
-                    tools=tools, # type: ignore[arg-type,unused-ignore]
-                )
+        try:
+            role_object = self.get_role(role)
+            conversation = role_object.get_conversation(
+                prompt,
+                image=image_path,
+                history=history
+            )
+            logger.debug(
+                f"Creating chat generation with conversation: {conversation}, tools {tools}, tool choice {tool_choice}"
+            )
+            stream_first_generation = False if tool_choice is not None and tool_choice != "auto" else stream
+            generation = self.llama.create_chat_completion(
+                messages=self.format_conversation(conversation), # type: ignore[arg-type,unused-ignore]
+                seed=get_seed(seed),
+                max_tokens=max_tokens,
+                stop=self.get_stop_tokens(stop),
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
+                typical_p=typical_p,
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                repeat_penalty=repeat_penalty,
+                stream=stream_first_generation,
+                tool_choice=tool_choice, # type: ignore[arg-type,unused-ignore]
+                tools=tools, # type: ignore[arg-type,unused-ignore]
+            )
 
-                logger.debug(f"Chat generation: {generation}")
+            logger.debug(f"Chat generation: {generation}")
 
-                if stream_first_generation:
-                    for message in generation:
-                        completed_text = message["choices"][0]["delta"].get("content", None) # type: ignore[union-attr,index,unused-ignore]
-                        if completed_text:
-                            self.add_intermediate(completed_text)
-                    text_result = self.trim_response(role_object.format_output(self.last_intermediate))
-                    if use_tools and return_tool_metadata:
+            if stream_first_generation:
+                for message in generation:
+                    completed_text = message["choices"][0]["delta"].get("content", None) # type: ignore[union-attr,index,unused-ignore]
+                    if completed_text:
+                        self.add_intermediate(completed_text)
+                text_result = self.trim_response(role_object.format_output(self.last_intermediate))
+                if use_tools and return_tool_metadata:
+                    return {
+                        "function": None,
+                        "citations": [],
+                        "result": text_result,
+                    }
+                return text_result
+            else:
+                completed_function_call = generation["choices"][0]["message"].get("function_call", None) # type: ignore[union-attr,index,unused-ignore]
+                if completed_function_call:
+                    completed_response = self.execute_and_format_function(
+                        prompt,
+                        completed_function_call,
+                        history=history,
+                        seed=get_seed(seed),
+                        temperature=temperature,
+                        top_p=top_p,
+                        top_k=top_k,
+                        min_p=min_p,
+                        typical_p=typical_p,
+                        max_tokens=max_tokens,
+                        presence_penalty=presence_penalty,
+                        frequency_penalty=frequency_penalty,
+                        repeat_penalty=repeat_penalty,
+                        stream=stream
+                    )
+                    if stream:
+                        for message in completed_response["formatted"]:
+                            completed_text = message["choices"][0]["delta"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
+                            if completed_text:
+                                self.add_intermediate(completed_text)
+                        text_result = self.trim_response(role_object.format_output(self.last_intermediate))
+                        if return_tool_metadata:
+                            return {
+                                "function": completed_response["function"],
+                                "citations": completed_response.get("citations", []),
+                                "result": text_result,
+                            }
+                        return text_result
+                    else:
+                        completed_text = completed_response["formatted"]["choices"][0]["message"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
+                        text_result = self.trim_response(role_object.format_output(completed_text))
+                        if return_tool_metadata:
+                            return {
+                                "function": completed_response["function"],
+                                "citations": completed_response.get("citations", []),
+                                "result": text_result,
+                            }
+                        return text_result
+                else:
+                    completed_text = generation["choices"][0]["message"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
+                    if isinstance(completed_text, str):
+                        text_result = self.trim_response(role_object.format_output(completed_text))
+                    else:
+                        text_result = ""
+                    if return_tool_metadata:
                         return {
                             "function": None,
                             "citations": [],
                             "result": text_result,
                         }
                     return text_result
-                else:
-                    completed_function_call = generation["choices"][0]["message"].get("function_call", None) # type: ignore[union-attr,index,unused-ignore]
-                    if completed_function_call:
-                        completed_response = self.execute_and_format_function(
-                            prompt,
-                            completed_function_call,
-                            history=history,
-                            seed=get_seed(seed),
-                            temperature=temperature,
-                            top_p=top_p,
-                            top_k=top_k,
-                            min_p=min_p,
-                            typical_p=typical_p,
-                            max_tokens=max_tokens,
-                            presence_penalty=presence_penalty,
-                            frequency_penalty=frequency_penalty,
-                            repeat_penalty=repeat_penalty,
-                            stream=stream
-                        )
-                        if stream:
-                            for message in completed_response["formatted"]:
-                                completed_text = message["choices"][0]["delta"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
-                                if completed_text:
-                                    self.add_intermediate(completed_text)
-                            text_result = self.trim_response(role_object.format_output(self.last_intermediate))
-                            if return_tool_metadata:
-                                return {
-                                    "function": completed_response["function"],
-                                    "citations": completed_response.get("citations", []),
-                                    "result": text_result,
-                                }
-                            return text_result
-                        else:
-                            completed_text = completed_response["formatted"]["choices"][0]["message"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
-                            text_result = self.trim_response(role_object.format_output(completed_text))
-                            if return_tool_metadata:
-                                return {
-                                    "function": completed_response["function"],
-                                    "citations": completed_response.get("citations", []),
-                                    "result": text_result,
-                                }
-                            return text_result
-                    else:
-                        completed_text = generation["choices"][0]["message"].get("content", None) # type: ignore[attr-defined,index,unused-ignore]
-                        if isinstance(completed_text, str):
-                            text_result = self.trim_response(role_object.format_output(completed_text))
-                        else:
-                            text_result = ""
-                        if return_tool_metadata:
-                            return {
-                                "function": None,
-                                "citations": [],
-                                "result": text_result,
-                            }
-                        return text_result
-            finally:
-                out, err = output.output()
-                if out:
-                    logger.debug(f"Stdout: {out}")
-                if err:
-                    logger.info(f"stderr (may not be an error): {err}")
-                output.clean()
-                if image_path is not None and remove_image:
-                    import os
-                    os.remove(image_path)
+        finally:
+            if image_path is not None and remove_image:
+                import os
+                os.remove(image_path)
 
 class LlamaImageCaptioning(Task):
     """

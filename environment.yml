@@ -11,6 +11,7 @@ dependencies:
   - openh264
   - pip
   - pip:
+    - aioconsole
     - async-lru
     - beautifulsoup4
     - click
@@ -20,7 +21,6 @@ dependencies:
     - httptools
     - moviepy<2.0
     - msgpack
-    - nest_asyncio
     - omegaconf
     - packaging
     - pillow

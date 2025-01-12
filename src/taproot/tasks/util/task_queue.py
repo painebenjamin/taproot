@@ -13,7 +13,7 @@ from time import perf_counter
 from collections import deque
 
 from taproot.config import ConfigMixin, TaskQueueConfig, TaskConfig
-from taproot.util import logger, get_payload_id
+from taproot.util import logger, get_payload_id, execute_and_await
 
 if TYPE_CHECKING:
     from taproot.tasks.base import Task
@@ -77,7 +77,6 @@ class TaskQueue(ConfigMixin):
         self._util_ema = 0.0
         self._executions = 0
         self._lock = threading.Lock()
-        self._start_tasks()
 
     """Configuration attributes"""
 
@@ -250,49 +249,42 @@ class TaskQueue(ConfigMixin):
         """
         return len(self._job_results)
 
+    """Class methods"""
+
+    @classmethod
+    def get(
+        cls,
+        task: str,
+        model: Optional[str]=None,
+        **kwargs: Any
+    ) -> TaskQueue:
+        """
+        Returns the task queue for the given task and model.
+        """
+        return cls(config={"task": task, "model": model, **kwargs})
+
     """Internal methods"""
-
-    def _start_tasks(self) -> None:
-        """
-        Starts the initial rounds of tasks.
-        """
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        logger.info(f"Starting load task for {self.task_name}:{self.model_name}")
-        self._load_task = loop.create_task(self._initialize_task())
-
-        logger.info(f"Starting periodic task for {self.task_name}:{self.model_name}")
-        self._periodic_task = loop.create_task(self._periodic_check())
-        weakref.finalize(self, self._check_stop_periodic_task, self._periodic_task)
 
     def _check_start_periodic_task(self) -> None:
         """
         Checks if the periodic task should be started.
         """
         if self.zombie:
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            loop = asyncio.get_running_loop()
             logger.info(f"Starting periodic task for {self.task_name}:{self.model_name}")
             self._periodic_task = loop.create_task(self._periodic_check())
             weakref.finalize(self, self._check_stop_periodic_task, self._periodic_task)
-        return
 
     def _check_stop_periodic_task(self, *args: Any) -> None:
         """
+        Called when the object is garbage collected, or explicitly during shutdown.
+
         Checks if the periodic task should be stopped.
         """
         if self._periodic_task is not None:
             if not self._periodic_task.done():
                 logger.info(f"Stopping periodic task for {self.task_name}:{self.model_name}")
                 self._periodic_task.cancel()
-                asyncio.get_event_loop().create_task(self._finalize_periodic_task(self._periodic_task))
             self._periodic_task = None
 
     async def _finalize_periodic_task(self, task: asyncio.Task[Any]) -> None:
@@ -316,6 +308,21 @@ class TaskQueue(ConfigMixin):
                 await asyncio.sleep(self.polling_interval)
         except asyncio.CancelledError:
             pass
+        logger.debug(f"Periodic task for {self.task_name}:{self.model_name} stopped.")
+
+    def _cleanup(self) -> None:
+        """
+        Cleans up the task queue.
+        """
+        self._job_results.clear()
+        self._job_starts.clear()
+        self._job_ends.clear()
+        self._job_access.clear()
+        self._job_callback.clear()
+        self._job_callback_result.clear()
+        self._active_id = None
+        self._job_progress = None
+        self._job_task = None
 
     def _start_next_job(self) -> None:
         """
@@ -325,12 +332,7 @@ class TaskQueue(ConfigMixin):
         if self._queue:
             payload_id, payload = self._queue.popleft()
             self._active_id = payload_id
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
+            loop = asyncio.get_running_loop()
             logger.debug(f"Starting job for {self.task_name}:{self.model_name} with ID {payload_id}")
             self._active_task = loop.create_task(
                 self._execute_and_save_task(payload_id, **payload)
@@ -345,10 +347,12 @@ class TaskQueue(ConfigMixin):
             if self._active_task is not None:
                 if not self._active_task.done():
                     return
+                # If it is finished, clear state
                 self._job_progress = None
                 self._job_task = None
                 self._active_task = None
                 self._active_id = None
+
             # Now check if we should start the next job
             if self._active_task is None and self._queue:
                 self._start_next_job()
@@ -360,27 +364,16 @@ class TaskQueue(ConfigMixin):
         if not hasattr(self, "_task"):
             from taproot.tasks.base import Task
             try:
-                task_cls = Task.get(
-                    task=self.task_name,
-                    model=self.model_name
-                )
+                task_cls = Task.get(task=self.task_name, model=self.model_name)
                 if task_cls is None:
                     raise ValueError(f"Task {self.task_name}:{self.model_name} not found.")
+
                 task_instance = task_cls(self.task_config) # type: ignore[arg-type]
                 task_instance.load()
                 self._task = task_instance
             except Exception as ex:
                 logger.error(f"Error initializing task {self.task_name}:{self.model_name}: {type(ex).__name__} {str(ex)}")
                 raise
-        return
-
-    async def _wait_for_task(self, polling_interval: float=0.01) -> None:
-        """
-        Waits for the task to be initialized.
-        """
-        while not hasattr(self, "_task"):
-            await asyncio.sleep(polling_interval)
-        return
 
     def _execute_task(self, payload: Dict[str, Any]) -> Any:
         """
@@ -396,19 +389,21 @@ class TaskQueue(ConfigMixin):
         """
         Executes the task with the given arguments and saves the result.
         """
-        await self._wait_for_task()
+        await self.wait_for_task()
         self._task.num_steps = 1 # Reset steps and counters
         self._job_starts[payload_id] = perf_counter()
         result = await asyncio.to_thread(self._execute_task, kwargs)
+
         callback = self._job_callback.pop(payload_id, None)
         callback_result: Any = None
         if callback is not None:
-            callback_result = await callback(result)
+            callback_result = await execute_and_await(callback, result)
 
         with self._lock:
+            end_time = perf_counter()
             self._job_results[payload_id] = result
-            self._job_ends[payload_id] = perf_counter()
-            self._job_access[payload_id] = self._job_ends[payload_id]
+            self._job_ends[payload_id] = end_time
+            self._job_access[payload_id] = end_time
             if callback is not None:
                 self._job_callback_result[payload_id] = callback_result
 
@@ -426,46 +421,24 @@ class TaskQueue(ConfigMixin):
             if current_time - result_time > self.result_duration:
                 to_pop.append(payload_id)
         for payload_id in to_pop:
-            self._job_results.pop(payload_id)
-            self._job_starts.pop(payload_id)
-            self._job_ends.pop(payload_id)
-            self._job_access.pop(payload_id)
+            self._job_results.pop(payload_id, None)
+            self._job_starts.pop(payload_id, None)
+            self._job_ends.pop(payload_id, None)
+            self._job_access.pop(payload_id, None)
             self._job_callback.pop(payload_id, None)
             self._job_callback_result.pop(payload_id, None)
-
-    def _has_result(self, payload_id: str) -> bool:
-        """
-        Checks if the result is in the results dictionary.
-        """
-        return payload_id in self._job_results
-
-    def _has_queued_job(self, payload_id: str) -> bool:
-        """
-        Checks if the job is in the queue.
-        """
-        return payload_id in [
-            queued_payload_id for
-            queued_payload_id, queued_args
-            in self._queue
-        ]
-
-    def _is_active_job(self, payload_id: str) -> bool:
-        """
-        Checks if the job is the active job.
-        """
-        return payload_id == self._active_id
 
     def _get_job_status(self, payload_id: str) -> Literal["new", "queued", "active", "complete", "error"]:
         """
         Returns the status of the job.
         """
-        if self._has_result(payload_id):
+        if payload_id in self._job_results:
             if isinstance(self._job_results[payload_id], Exception):
                 return "error"
             return "complete"
-        elif self._is_active_job(payload_id):
+        elif payload_id == self._active_id:
             return "active"
-        elif self._has_queued_job(payload_id):
+        elif any(p_id == payload_id for p_id, _ in self._queue):
             return "queued"
         return "new"
 
@@ -473,9 +446,9 @@ class TaskQueue(ConfigMixin):
         """
         Returns the progress of the job.
         """
-        if self._has_result(payload_id):
+        if payload_id in self._job_results:
             return 1.0
-        elif self._is_active_job(payload_id):
+        elif payload_id == self._active_id:
             return self._task.progress
         return 0.0
 
@@ -483,12 +456,14 @@ class TaskQueue(ConfigMixin):
         """
         Returns the rate of the job.
         """
-        if self._has_result(payload_id):
+        if payload_id in self._job_results:
             job_start = self._job_starts.get(payload_id, None)
             job_end = self._job_ends.get(payload_id, None)
             if job_start is not None and job_end is not None:
-                return 1.0 / (job_end - job_start)
-        elif self._is_active_job(payload_id):
+                elapsed_time = job_end - job_start
+                if elapsed_time > 0:
+                    return 1.0 / elapsed_time
+        if payload_id == self._active_id:
             # Normalize the rate by the number of steps
             return self._task.rate / self._task.num_steps
         return None
@@ -501,7 +476,7 @@ class TaskQueue(ConfigMixin):
         job_end = self._job_ends.get(payload_id, None)
         if job_start is not None and job_end is not None:
             return job_end - job_start
-        elif job_start is not None:
+        elif job_start is not None and payload_id == self._active_id:
             return perf_counter() - job_start
         return None
 
@@ -509,61 +484,19 @@ class TaskQueue(ConfigMixin):
         """
         Returns the remaining time of the job.
         """
-        if self._has_result(payload_id):
+        if payload_id in self._job_results:
             return 0.0
-        elif self._is_active_job(payload_id):
-            return self._task.remaining
+        elif payload_id == self._active_id:
+            return getattr(self._task, "remaining", None)
         return None
 
     def _get_job_intermediate(self, payload_id: str) -> Optional[Any]:
         """
         Returns the remaining time of the job.
         """
-        if self._is_active_job(payload_id):
-            return self._task.last_intermediate
+        if payload_id == self._active_id:
+            return getattr(self._task, "last_intermediate", None)
         return None
-
-    def _get_callback_result(self, payload_id: str) -> Optional[Any]:
-        """
-        Returns the callback result of the job.
-        """
-        return self._job_callback_result.get(payload_id, None)
-
-    def _get_job_result(
-        self,
-        payload_id: str,
-        wait: bool=False,
-        raise_when_unfinished: bool=False,
-        polling_interval: float=0.01
-    ) -> Any:
-        """
-        Returns the result of the job.
-        """
-        with self._lock:
-            if self._has_result(payload_id):
-                # Reset the time when the result is accessed
-                logger.debug(f"Result for {payload_id} found.")
-                self._job_access[payload_id] = perf_counter()
-                return self._job_results[payload_id]
-            if not wait:
-                logger.debug(f"Result for {payload_id} not found.")
-                if raise_when_unfinished:
-                    raise ValueError(f"Result for {payload_id} not found.")
-                return None
-
-        logger.debug(f"Waiting for result for {payload_id}.")
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        while True:
-            loop.run_until_complete(asyncio.sleep(polling_interval))
-            with self._lock:
-                if self._has_result(payload_id):
-                    logger.debug(f"Result for {payload_id} found.")
-                    return self._job_results[payload_id]
 
     def _add_job(
         self,
@@ -603,50 +536,159 @@ class TaskQueue(ConfigMixin):
         """
         Unloads the task.
         """
-        if hasattr(self, "_task"):
-            self._task.unload()
+        with self._lock:
+            if hasattr(self, "_task"):
+                self._task.unload()
 
     def _offload_task(self) -> None:
         """
         Offloads the task (from GPU to CPU).
         """
-        if hasattr(self, "_task"):
-            self._task.offload()
+        with self._lock:
+            if hasattr(self, "_task"):
+                self._task.offload()
 
     def _onload_task(self) -> None:
         """
         Onloads the task (from CPU to GPU).
         """
-        if hasattr(self, "_task"):
-            self._task.onload()
-
-    @classmethod
-    def get(
-        cls,
-        task: str,
-        model: Optional[str]=None,
-        **kwargs: Any
-    ) -> TaskQueue:
-        """
-        Returns the task queue for the given task and model.
-        """
-        return cls(config={"task": task, "model": model, **kwargs})
-
-    def shutdown(self) -> None:
-        """
-        Shuts down the task queue.
-        """
-        self._check_stop_periodic_task()
-        self._unload_task()
+        with self._lock:
+            if hasattr(self, "_task"):
+                self._task.onload()
 
     """Public methods"""
 
+    def start(self) -> None:
+        """
+        Starts the initial rounds of tasks.
+        """
+        loop = asyncio.get_running_loop()
+        logger.info(f"Starting load task for {self.task_name}:{self.model_name}")
+        self._load_task = loop.create_task(self._initialize_task())
+
+        logger.info(f"Starting periodic task for {self.task_name}:{self.model_name}")
+        self._periodic_task = loop.create_task(self._periodic_check())
+        weakref.finalize(self, self._check_stop_periodic_task, self._periodic_task)
+
+    async def wait_for_task(self, polling_interval: float=0.01) -> None:
+        """
+        Waits for the task to be initialized.
+        """
+        while not hasattr(self, "_task"):
+            await asyncio.sleep(polling_interval)
+
+    async def shutdown(self) -> None:
+        """
+        Graceful shutdown of the task queue.
+          1. Cancel periodic
+          2. Cancel active tasks
+          3. Unload
+          4. Cleanup
+        """
+        self._check_stop_periodic_task()
+        if self._periodic_task is not None:
+            # wait for it to actually finish
+            try:
+                await self._periodic_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._active_task is not None:
+            if not self._active_task.done():
+                logger.debug(f"Shutting down active task for {self.task_name}:{self.model_name}")
+                self._active_task.cancel()
+            try:
+                await self._active_task
+            except asyncio.CancelledError:
+                pass
+            self._active_task = None
+
+        if self._load_task is not None:
+            if not self._load_task.done():
+                logger.debug(f"Shutting down load task for {self.task_name}:{self.model_name}")
+                self._load_task.cancel()
+            try:
+                await self._load_task
+            except asyncio.CancelledError:
+                pass
+            self._load_task = None
+
+        self._unload_task()
+        self._cleanup()
+
+    async def fetch_result(
+        self,
+        payload_id: str,
+        raise_when_error: bool=True
+    ) -> Any:
+        """
+        Asynchronously wait for a job result. Non-blocking.
+        If the job does not exist or is not started, this waits
+        until it’s complete.
+
+        If `raise_when_error=True`, will re-raise the exception
+        if the underlying job had an error.
+        """
+        # Make sure the job is known or will be known
+        while True:
+            s = self._get_job_status(payload_id)
+            if s in ("complete", "error"):
+                break
+            # queued or active
+            await asyncio.sleep(0.01)
+
+        # Return or raise the result
+        result = self._job_results.get(payload_id, None)
+        if isinstance(result, Exception) and raise_when_error:
+            raise result
+
+        return result
+
+    async def fetch_callback_result(self, payload_id: str) -> Any:
+        """
+        Asynchronously wait for a job callback result. Non-blocking.
+        If the job does not exist or is not started, this waits until it’s complete.
+        """
+        while True:
+            s = self._get_job_status(payload_id)
+            if s in ("complete", "error"):
+                break
+            # queued or active
+            await asyncio.sleep(0.01)
+
+        return self._job_callback_result.get(payload_id, None)
+
+    def get_status(self, payload_id: str) -> TaskQueueResult:
+        """
+        Return a snapshot of the job’s status right now (non-blocking).
+        """
+        job_status = self._get_job_status(payload_id)
+        job_result = self._job_results.get(payload_id, None)
+        callback_result = self._job_callback_result.get(payload_id, None)
+
+        return TaskQueueResult(
+            id=payload_id,
+            status=job_status,
+            progress=self._get_job_progress(payload_id),
+            rate=self._get_job_rate(payload_id),
+            start=self._job_starts.get(payload_id),
+            end=self._job_ends.get(payload_id),
+            duration=self._get_job_duration(payload_id),
+            remaining=self._get_job_remaining(payload_id),
+            intermediate=self._get_job_intermediate(payload_id),
+            result=job_result,
+            callback=callback_result
+        )
+
+    """Dunder methods"""
+
     def __del__(self) -> None:
         """
-        Deletes the task queue.
+        Deletes the task queue - best effort cleanup, prefer await shutdown.
         """
         self._check_stop_periodic_task()
         self._unload_task()
+        self._cleanup()
 
     def __len__(self) -> int:
         """
@@ -658,7 +700,11 @@ class TaskQueue(ConfigMixin):
         """
         Checks if the payload ID is active, is in the queue, or has a result.
         """
-        return self._has_result(payload_id) or self._has_queued_job(payload_id) or self._is_active_job(payload_id)
+        return (
+            payload_id == self._active_id or
+            any(p_id == payload_id for p_id, _ in self._queue) or
+            payload_id in self._job_results
+        )
 
     def __call__(self, **kwargs: Any) -> TaskQueueResult:
         """
@@ -666,49 +712,26 @@ class TaskQueue(ConfigMixin):
         Either adds the job to the queue or returns the result of the job that matches the given arguments.
         When the job is running, this function will return the status of the job.
         """
-        wait_for_result: bool = kwargs.pop("wait_for_result", False)
-        raise_error_result: bool = kwargs.pop("raise_error_result", False)
         payload_id = kwargs.pop("id", None)
         callback = kwargs.pop("callback", None)
 
         if payload_id is None:
             payload_id = get_payload_id(kwargs)
 
-        # Get the task result first, if the call waits for the result
-        # then the job status will change after this is called
-        initial_status = self._get_job_status(payload_id)
-        if initial_status == "new":
+        status = self._get_job_status(payload_id)
+        if status == "new":
             if not kwargs:
                 raise ValueError("No arguments provided for task!")
 
-            logger.debug(f"Adding job for {self.task_name}:{self.model_name} with ID {payload_id}")
-            self._add_job(
-                payload_id,
-                callback=callback,
-                **kwargs
-            )
+            if self.full:
+                raise ValueError("Queue is full, cannot add job.")
 
-        # Now get the task result
-        task_result = self._get_job_result(
-            payload_id,
-            wait=wait_for_result,
-            raise_when_unfinished=False
-        )
-        callback_result = self._get_callback_result(payload_id)
+            # Enqueue
+            with self._lock:
+                self._executions += 1
+                self._queue.append((payload_id, kwargs))
+                if callback is not None:
+                    self._job_callback[payload_id] = callback
 
-        task_queue_result: TaskQueueResult = {
-            "id": payload_id,
-            "status": initial_status if not wait_for_result else self._get_job_status(payload_id),
-            "progress": self._get_job_progress(payload_id),
-            "rate": self._get_job_rate(payload_id),
-            "start": self._job_starts.get(payload_id, None),
-            "end": self._job_ends.get(payload_id, None),
-            "duration": self._get_job_duration(payload_id),
-            "remaining": self._get_job_remaining(payload_id),
-            "intermediate": self._get_job_intermediate(payload_id),
-            "result": task_result,
-            "callback": callback_result
-        }
-        if task_queue_result["status"] == "error" and raise_error_result:
-            raise task_result
-        return task_queue_result
+        # Return a snapshot of current status
+        return self.get_status(payload_id)

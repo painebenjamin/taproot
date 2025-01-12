@@ -7,7 +7,7 @@ import torch.nn as nn
 
 from typing import Any, Dict, List, Tuple, Union, Optional
 
-from taproot.util import logger
+from taproot.util import logger, log_duration
 
 from .bert import KokoroAlbert
 from .istftnet import Decoder
@@ -132,20 +132,22 @@ class KokoroModel(nn.Module):
         en = torch.cat(en_list, dim=0)
 
         # Run the predictor
-        f0_preds, n_preds = self.predictor.f0_n_train(en, s)
+        with log_duration("predicting"):
+            f0_preds, n_preds = self.predictor.f0_n_train(en, s)
 
         # Decode samples independently
-        decoded = []
-        for (f0_pred, n_pred, asr) in zip(f0_preds, n_preds, asr_list):
-            pred_size = asr.size(-1) * 2
-            decoded.append(
-                self.decoder(
-                    asr,
-                    f0_pred[:pred_size].unsqueeze(0),
-                    n_pred[:pred_size].unsqueeze(0),
-                    ref_s[:, :128]
+        with log_duration("decoding"):
+            decoded = []
+            for (f0_pred, n_pred, asr) in zip(f0_preds, n_preds, asr_list):
+                pred_size = asr.size(-1) * 2
+                decoded.append(
+                    self.decoder(
+                        asr,
+                        f0_pred[:pred_size].unsqueeze(0),
+                        n_pred[:pred_size].unsqueeze(0),
+                        ref_s[:, :128]
+                    )
                 )
-            )
 
         return decoded
 
@@ -195,20 +197,21 @@ class KokoroModel(nn.Module):
         tokens_list = []
         max_token_len = 0
 
-        for i, text in enumerate(texts):
-            phonemes = phonemize(text, lang)
-            tokens = tokenize(phonemes)
+        with log_duration("tokenizing"):
+            for i, text in enumerate(texts):
+                phonemes = phonemize(text, lang)
+                tokens = tokenize(phonemes)
 
-            if not tokens:
-                raise ValueError("Text is empty.")
-            token_len = len(tokens)
-            if token_len > 510:
-                tokens = tokens[:510]
-                logger.warning("Text is too long, truncating to 510 tokens.")
-                token_len = 510
+                if not tokens:
+                    raise ValueError("Text is empty.")
+                token_len = len(tokens)
+                if token_len > 510:
+                    tokens = tokens[:510]
+                    logger.warning("Text is too long, truncating to 510 tokens.")
+                    token_len = 510
 
-            max_token_len = max(max_token_len, token_len)
-            tokens_list.append(tokens)
+                max_token_len = max(max_token_len, token_len)
+                tokens_list.append(tokens)
 
         reference = voice_embed[max_token_len] # Voices are packed as a matrix
         outs = self.forward(tokens_list, reference, speed)

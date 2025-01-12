@@ -141,7 +141,7 @@ class KokoroSpeechSynthesis(Task):
         seed: SeedType=None,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
-        batch_size: int=32,
+        batch_size: int=256,
     ) -> List[torch.Tensor]:
         """
         Synthesize audio from text.

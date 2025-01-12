@@ -6,9 +6,8 @@ import asyncio
 
 from typing import (
     Any,
-    Coroutine,
+    AsyncIterator,
     Dict,
-    Iterator,
     List,
     Optional,
     Set,
@@ -19,12 +18,11 @@ from typing import (
     cast,
 )
 from typing_extensions import Literal, Self
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from time import perf_counter
 
 from ..util import (
-    asyncio_run,
     logger,
     find_free_memory_port,
     find_free_unix_socket,
@@ -64,6 +62,14 @@ class RunningExecutor:
         Check if the executor has recently started.
         """
         return perf_counter() - self.start_time < threshold
+
+    def recently_assigned(self, threshold: float=0.01) -> bool:
+        """
+        Check if the executor has (very) recently been assigned.
+        Most of the time this threshold is way longer than the actual time between requests.
+        This only really applies when handling a very large number of requests in a very short time.
+        """
+        return bool(self.assignment_times) and perf_counter() - self.assignment_times[-1] < threshold
 
     def prune_assignment_times(self, now: float, threshold: float=1.0) -> None:
         """
@@ -144,6 +150,13 @@ class Dispatcher(ConfigServer):
         if spawn_interval is None:
             return None
         return float(spawn_interval)
+
+    @property
+    def default_overseer_addresses(self) -> Optional[List[str]]:
+        """
+        Default overseer addresses for the dispatcher.
+        """
+        return self.config.overseer_addresses # type: ignore[no-any-return]
 
     """Getters/Setters"""
 
@@ -643,7 +656,7 @@ class Dispatcher(ConfigServer):
             if status.get("has_id", False):
                 logger.debug(f"Returning executor {executor.server.address} with ID for task {task.get_key()}")
                 return executor # Return immediately if the ID is found
-            elif status.get("status", "active") == "idle" and not executor.recently_started():
+            elif status.get("status", "active") == "idle" and not executor.recently_started() and not executor.recently_assigned():
                 idle_executor = executor
                 break
         if idle_executor:
@@ -672,7 +685,7 @@ class Dispatcher(ConfigServer):
         if getattr(self, "pool", None) is None:
             raise RuntimeError("Pool is not initialized.")
 
-        if self.manual_exit:
+        if self.manual_exit.is_set():
             raise RuntimeError("Dispatcher is exiting, cannot spawn new executor.")
 
         while not self.pool.has_available_workers: # type: ignore[union-attr]
@@ -687,7 +700,8 @@ class Dispatcher(ConfigServer):
         executor = Executor(executor_config) # type: ignore[arg-type]
         future = asyncio.get_running_loop().run_in_executor(
             self.pool,
-            executor.serve
+            executor.serve,
+            False, # Don't install signal handlers
         )
 
         if task not in self.executors:
@@ -703,7 +717,6 @@ class Dispatcher(ConfigServer):
 
         self.executors[task].append(now_running) # Add to memory before asserting connectivity
         return now_running.assign()
-
 
     async def _prepare_task(
         self,
@@ -817,7 +830,8 @@ class Dispatcher(ConfigServer):
             executor = Executor(executor_config)
             future = asyncio.get_running_loop().run_in_executor(
                 self.pool,
-                executor.serve
+                executor.serve,
+                False, # Don't install signal handlers
             )
 
             if task not in self.executors:
@@ -864,18 +878,32 @@ class Dispatcher(ConfigServer):
 
     """Overrides"""
 
-    @contextmanager
-    def context(self) -> Iterator[None]:
+    @asynccontextmanager
+    async def context(self) -> AsyncIterator[None]:
         """
         Context manager for the dispatcher.
         """
-        with super().context():
+        async with super().context():
             if self.use_multiprocessing:
+                logger.info(f"Using multiprocessing for dispatcher with {self.max_workers} workers")
                 self.pool = TrackingProcessPoolExecutor(max_workers=self.max_workers)
             else:
+                logger.info(f"Using multithreading for dispatcher with {self.max_workers} workers")
                 self.pool = TrackingThreadPoolExecutor(max_workers=self.max_workers)
-            asyncio_run(self._spawn_configured_executors())
+            await self._spawn_configured_executors()
             yield
+
+    async def post_start(self) -> None:
+        """
+        Post-start hook for the dispatcher.
+
+        We use this hook to register with any configured overseers.
+        The python API will let you call `register_overseer` on the
+        server object while it is running as well, for added flexibility.
+        """
+        if self.default_overseer_addresses:
+            for overseer_address in self.default_overseer_addresses:
+                await self.register_overseer(overseer_address)
 
     async def command(self, request: str, data: Any=None) -> Any:
         """
@@ -995,49 +1023,66 @@ class Dispatcher(ConfigServer):
         """
         raise NotImplementedError("Dispatcher does not perform any client-facing operations.")
 
-    def shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """
         Shutdown the dispatcher.
         """
-        super().shutdown()
-
         # Go through executors and issue a shutdown to all in parallel
-        executors_arrays = list(self.executors.values())
-        self.executors = {}
-        exit_futures: List[Coroutine[Any, Any, Any]] = []
-        for executor_array in executors_arrays:
-            for executor in executor_array:
-                exit_futures.append(executor.server.exit())
         try:
-            asyncio_run(
-                asyncio.gather(*exit_futures),
-                as_task=False
-            )
+            await asyncio.gather(*[
+                executor.server.exit()
+                for executor_array in self.executors.values()
+                for executor in executor_array
+                if not executor.future.done()
+            ])
         except Exception as e:
             logger.debug(f"Dispatcher ignoring error during executor exiting: {e}")
+        else:
+            logger.debug(f"Successfully shut down all executors for dispatcher on {self.address}")
 
-        # Now go through overseers and unregister from all in parallel
-        unregister_futures: List[Coroutine[Any, Any, Any]] = []
-        for overseer in list(self.overseers):
-            unregister_futures.append(self.unregister_overseer(overseer))
+        # Ensure all executor tasks are done
         try:
-            asyncio_run(
-                asyncio.gather(*unregister_futures),
-                as_task=False
+            for executor_array in self.executors.values():
+                for executor in executor_array:
+                    if not executor.future.done():
+                        try:
+                            executor.future.cancel()
+                        except Exception as e:
+                            logger.warn(f"Error cancelling task, ignoring: {e}")
+                            continue
+
+            await asyncio.wait_for(
+                asyncio.gather(*[
+                    executor.future
+                    for executor_array in self.executors.values()
+                    for executor in executor_array
+                ]),
+                timeout=0.1
             )
+        except Exception as e:
+            logger.debug(f"Dispatcher ignoring error during executor future cancellation: {e}")
+
+        self.executors.clear()
+        logger.debug("Successfully cancelled all executor futures for dispatcher on {self.address}")
+
+        # Go through overseers and unregister from all in parallel
+        try:
+            await asyncio.gather(*[
+                self.unregister_overseer(overseer)
+                for overseer in self.overseers
+            ])
         except Exception as e:
             logger.debug(f"Dispatcher ignoring error during overseer unregistering: {e}")
 
+        self.overseers.clear()
+        logger.debug("Successfully unregistered from all overseers for dispatcher on {self.address}")
+
         # Hard shut down anything that remains
         if getattr(self, "pool", None) is not None:
+            logger.debug("Shutting down dispatcher pool")
             self.pool.shutdown(wait=False, cancel_futures=True) # type: ignore[union-attr]
             del self.pool
 
-        for executor_array in executors_arrays:
-            for executor in executor_array:
-                if not executor.future.done():
-                    try:
-                        executor.future.cancel()
-                    except Exception as e:
-                        logger.warn(f"Error cancelling task, ignoring: {e}")
-                        continue
+        # Now call the super shutdown
+        logger.debug("Dispatcher cleanup complete, calling super shutdown")
+        await super().shutdown()

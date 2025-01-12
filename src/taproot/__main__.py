@@ -8,7 +8,7 @@ import functools
 
 from time import perf_counter
 
-from typing import Dict, List, Optional, Type, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Type, Any, Set, TYPE_CHECKING
 
 from .version import version
 from .constants import *
@@ -190,6 +190,7 @@ def info(
             file_is_downloaded_to_dir,
             get_file_name_from_url,
             get_file_size_from_url,
+            get_pip_package_name,
             installed_package_matches_spec,
             required_library_is_available,
             green,
@@ -301,7 +302,7 @@ def info(
                 else:
                     installed_label = red("[not installed]")
 
-                click.echo(f"    {blue(required_package)}{spec or ''} {installed_label}")
+                click.echo(f"    {blue(get_pip_package_name(required_package))}{spec or ''} {installed_label}")
 
         click.echo("Signature:")
         for param_name, param_config in task_signature["parameters"].items():
@@ -328,6 +329,133 @@ def info(
                 return_type_name = getattr(task_signature["return_type"], "__name__", str(task_signature["return_type"]))
             click.echo("Returns:")
             click.echo(f"    {magenta(return_type_name)}")
+
+@main.command(name="packages", short_help="Print combined required packages for one or more tasks.")
+@click.argument("tasks", type=str, nargs=-1)
+@click.option("--optional/--no-optional", default=False, is_flag=True, show_default=True, help="Include optional dependencies.")
+@context_options(include_save_dir=False, include_model_dir=False, include_quiet=False)
+def packages(
+    tasks: List[str]=[],
+    optional: bool=False,
+    log_level: str=DEFAULT_LOG_LEVEL,
+    add_import: List[str]=[],
+) -> None:
+    """
+    Prints combined required packages for one or more tasks, one per line.
+
+    Does not print versions with attached precompiled libraries.
+    """
+    with get_command_context(log_level, add_import):
+        from .tasks import Task
+        from .util import (
+            assert_required_library_installed,
+            check_download_files_to_dir,
+            combine_package_specifications,
+            get_file_name_from_url,
+            get_pip_package_name,
+            install_packages,
+            red
+        )
+
+        target_tasks: List[Type[Task]] = []
+
+        for task_name, model_name, task_class in Task.enumerate(available_only=False):
+            if not tasks:
+                target_tasks.append(task_class)
+                continue
+
+            for passed_task in tasks:
+                passed_task_parts = passed_task.split(":")
+                if len(passed_task_parts) == 1:
+                    passed_task_name = passed_task_parts[0]
+                    passed_task_model = None
+                else:
+                    passed_task_name, passed_task_model = passed_task_parts
+
+                if task_name == passed_task_name:
+                    if model_name == passed_task_model or passed_task_model is None:
+                        target_tasks.append(task_class)
+                        continue
+
+        if not target_tasks:
+            click.echo(red("No tasks could be found with the provided arguments."))
+            return
+
+        packages: List[Dict[str, Optional[str]]] = []
+
+        for task_class in target_tasks:
+            packages.append(
+                task_class.combined_required_packages(
+                    allow_optional=optional
+                )
+            )
+
+        combined_packages = combine_package_specifications(*packages)
+
+        if not combined_packages:
+            return
+
+        click.echo(
+            "\n".join([
+                f"{get_pip_package_name(package)}{spec or ''}"
+                for package, spec in combined_packages.items()
+            ])
+        )
+
+@main.command(name="files", short_help="Print combined required files for one or more tasks.")
+@click.argument("tasks", type=str, nargs=-1)
+@click.option("--optional/--no-optional", default=False, is_flag=True, show_default=True, help="Include optional dependencies.")
+@context_options(include_save_dir=False, include_model_dir=False, include_quiet=False)
+def files(
+    tasks: List[str]=[],
+    optional: bool=False,
+    log_level: str=DEFAULT_LOG_LEVEL,
+    add_import: List[str]=[],
+) -> None:
+    """
+    Prints combined required files for one or more tasks, one per line.
+    """
+    with get_command_context(log_level, add_import):
+        from .tasks import Task
+        from .util import (
+            assert_required_library_installed,
+            combine_package_specifications,
+            install_packages,
+            get_file_name_from_url,
+            check_download_files_to_dir,
+            red
+        )
+
+        target_tasks: List[Type[Task]] = []
+
+        for task_name, model_name, task_class in Task.enumerate(available_only=False):
+            if not tasks:
+                target_tasks.append(task_class)
+                continue
+
+            for passed_task in tasks:
+                passed_task_parts = passed_task.split(":")
+                if len(passed_task_parts) == 1:
+                    passed_task_name = passed_task_parts[0]
+                    passed_task_model = None
+                else:
+                    passed_task_name, passed_task_model = passed_task_parts
+
+                if task_name == passed_task_name:
+                    if model_name == passed_task_model or passed_task_model is None:
+                        target_tasks.append(task_class)
+                        continue
+
+        if not target_tasks:
+            click.echo(red("No tasks could be found with the provided arguments."))
+            return
+
+        files: Set[str] = set()
+
+        for task_class in target_tasks:
+            files.update(task_class.required_files(allow_optional=optional))
+
+        click.echo("\n".join(files))
 
 @main.command(name="install", short_help="Installs pacakages and downloads files for a task.")
 @click.argument("tasks", type=str, nargs=-1)

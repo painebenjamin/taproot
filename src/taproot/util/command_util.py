@@ -27,6 +27,9 @@ from .async_util import ServerRunner, aioconsole_is_available
 
 if TYPE_CHECKING:
     from ..server import Server, ConfigServer
+    T = TypeVar("T", bound=ConfigServer)
+else:
+    T = TypeVar("T")
 
 __all__ = [
     "get_command_context",
@@ -288,10 +291,19 @@ def server_options(
                 show_default=True
             )(func)
 
+        if include_config_file:
+            func = click.option(
+                "--config",
+                "-c",
+                type=click.Path(exists=True),
+                default=None,
+                help="Configuration file.",
+                show_default=True
+            )(func)
+
         return func
     return wrapper
 
-T = TypeVar("T", bound=ConfigServer)
 def get_server(
     server_class: Type[T],
     address: str=DEFAULT_ADDRESS,

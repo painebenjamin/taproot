@@ -246,8 +246,11 @@ class ServerRunner:
                 if not task.done()
             ])
 
-            # Wait one second
-            await asyncio.sleep(1.0)
+            # Wait up to 10 seconds for all tasks to finish
+            total_time = 0.0
+            while any(not task.done() for task in tasks) and total_time < 10:
+                await asyncio.sleep(0.2)
+                total_time += 0.2
 
             # Ensure all tasks are done
             for task in tasks:

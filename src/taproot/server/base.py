@@ -4,7 +4,6 @@ import os
 import ssl
 import time
 import struct
-import socket
 import asyncio
 import threading
 import traceback
@@ -849,7 +848,6 @@ class Server(Encryption):
 
         logger.info(f"Beginning main server loop on {self.address} for {type(self).__name__}")
         server_context = nullcontext()
-        loop = asyncio.get_running_loop()
         server = None
 
         if self.protocol == "ws":
@@ -946,124 +944,118 @@ class Server(Encryption):
             if self.protocol == "unix" and os.path.exists(self.path): # type: ignore[arg-type]
                 os.remove(self.path) # type: ignore[arg-type]
 
-            if self.protocol == "unix":
-                server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                try:
-                    server.bind(self.path) # type: ignore[arg-type]
-                except Exception as e:
-                    raise RuntimeError(f"Error binding to {self.path}") from e
-            else:
-                server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                try:
-                    server.bind((self.host, self.port))
-                except Exception as e:
-                    raise RuntimeError(f"Error binding to {self.host}:{self.port}") from e
-
-            server.listen()
-            server.setblocking(False)
-
-            async def handle_client(client_socket: socket.socket) -> None:
+            async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
                 """
                 Handle a client connection.
                 """
                 nonlocal manual_exit
-                logger.debug(f"Handling client connection {client_socket}")
+                peername = writer.get_extra_info('peername')
+
+                logger.debug(f"Handling connection from {peername}")
+
+                if self.protocol != "unix" and not self._is_ip_allowed(peername[0]):
+                    logger.error(f"Connection from {peername[0]} not allowed.")
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
                 await self._increment_active_requests()
                 try:
-                    with client_socket:
-                        response: bytes = b""
-                        while True:
+                    response: bytes = b""
+                    while True:
+                        try:
+                            # Read the message length
                             try:
-                                # Read the message length
+                                length_data = await reader.readexactly(4)
+                            except (asyncio.IncompleteReadError) as ex:
+                                length_data = b""
+
+                            if not length_data:
+                                break
+
+                            message_length = struct.unpack('!I', length_data)[0]
+                            logger.debug(f"Received message length {message_length}, reading data.")
+                            # Read the message data
+                            data = b''
+                            while len(data) < message_length:
                                 try:
-                                    length_data = await asyncio.wait_for(
-                                        loop.sock_recv(client_socket, 4),
+                                    packet = await asyncio.wait_for(
+                                        reader.read(message_length-len(data)),
                                         timeout=SERVER_POLLING_INTERVAL
                                     )
                                 except asyncio.TimeoutError:
-                                    length_data = b""
-
-                                if not length_data:
+                                    packet = b""
+                                if not packet:
                                     break
+                                data += packet
 
-                                message_length = struct.unpack('!I', length_data)[0]
-                                logger.debug(f"Received message length {message_length}, reading data.")
+                            # Decode the data and execute the task
+                            if self.use_encryption and data:
+                                try:
+                                    data = self.decrypt(data)
+                                except Exception as e:
+                                    logger.error(f"{type(self).__name__}: Error decrypting data: {e}")
 
-                                # Read the message data
-                                data = b''
-                                while len(data) < message_length:
-                                    try:
-                                        packet = await asyncio.wait_for(
-                                            loop.sock_recv(
-                                                client_socket,
-                                                message_length-len(data)
-                                            ),
-                                            timeout=SERVER_POLLING_INTERVAL
-                                        )
-                                    except asyncio.TimeoutError:
-                                        packet = b""
-                                    if not packet:
-                                        break
-                                    data += packet
-
-                                # Decode the data and execute the task
-                                if self.use_encryption and data:
-                                    try:
-                                        data = self.decrypt(data)
-                                    except Exception as e:
-                                        logger.error(f"{type(self).__name__}: Error decrypting data: {e}")
-
-                                if data:
-                                    try:
-                                        request = decode_and_unpack(data)
-                                    except Exception as e:
-                                        logger.error(f"{type(self).__name__}: Error unpickling data: {e}")
-                                        request = None
-                                else:
+                            if data:
+                                try:
+                                    request = decode_and_unpack(data)
+                                except Exception as e:
+                                    logger.error(f"{type(self).__name__}: Error unpickling data: {e}")
                                     request = None
+                            else:
+                                request = None
 
-                                # Check if the request is a control request while we're in scope
-                                if is_control_message(request):
-                                    logger.debug(f"Handling control request: {request}")
-                                    peername = client_socket.getpeername()
-                                    if self.protocol != "unix" and not self._is_ip_allowed_control(peername[0]):
-                                        # Respond with exception
-                                        result = PermissionError("Control request not allowed from {peername[0]}.")
-                                    else:
-                                        result = await self._handle_control_request(request)
-                                        if isinstance(result, str) and result == self._shutdown_key:
-                                            if self.protocol == "unix":
-                                                logger.info(f"Received exit request.")
-                                            else:
-                                                logger.info(f"Received exit request from {peername[0]}.")
-                                            manual_exit.set()
-                                            result = None
+                            # Check if the request is a control request while we're in scope
+                            if is_control_message(request):
+                                logger.debug(f"Handling control request: {request}")
+                                if self.protocol != "unix" and not self._is_ip_allowed_control(peername[0]):
+                                    # Respond with exception
+                                    result = PermissionError("Control request not allowed from {peername[0]}.")
                                 else:
-                                    logger.debug(f"Handling request, payload is of type {type(request)}")
-                                    result = await self._handle_request(request)
+                                    result = await self._handle_control_request(request)
+                                    if isinstance(result, str) and result == self._shutdown_key:
+                                        if self.protocol == "unix":
+                                            logger.info(f"Received exit request.")
+                                        else:
+                                            logger.info(f"Received exit request from {peername[0]}.")
+                                        manual_exit.set()
+                                        result = None
+                            else:
+                                logger.debug(f"Handling request, payload is of type {type(request)}")
+                                result = await self._handle_request(request)
 
-                                response = pack_and_encode(result)
-                            except Exception as e:
-                                if getattr(e, "errno", None) == 104: # Connection reset by peer
-                                    break
-                                logger.error(f"Error handling request: {e}")
-                                logger.debug(traceback.format_exc())
-                                response = pack_and_encode(e)
-                            try:
-                                if self.use_encryption and response:
-                                    response = self.encrypt(response)
-                                response_length = struct.pack('!I', len(response))
-                                logger.debug(f"Sending response of length {len(response)}")
-                                await loop.sock_sendall(client_socket, response_length + response)
-                            except Exception as e:
-                                if getattr(e, "errno", None) == 32: # Broken pipe
-                                    break
-                                logger.error(f"Error sending response: {e}")
+                            response = pack_and_encode(result)
+                        except Exception as e:
+                            if getattr(e, "errno", None) == 104: # Connection reset by peer
                                 break
+                            logger.error(f"Error handling request: {e}")
+                            logger.debug(traceback.format_exc())
+                            response = pack_and_encode(e)
+                        try:
+                            if self.use_encryption and response:
+                                response = self.encrypt(response)
+                            response_length = struct.pack('!I', len(response))
+                            logger.debug(f"Sending response of length {len(response)}")
+                            writer.write(response_length + response)
+                            await writer.drain()
+                        except Exception as e:
+                            if getattr(e, "errno", None) == 32: # Broken pipe
+                                break
+                            logger.error(f"Error sending response: {e}")
+                            logger.debug(traceback.format_exc())
+                            break
+                except Exception as e:
+                    logger.error(f"Error handling client: {e}")
+                    logger.debug(traceback.format_exc())
                 finally:
+                    writer.close()
+                    await writer.wait_closed()
                     await self._decrement_active_requests()
+
+            if self.protocol == "unix":
+                server_context = await asyncio.start_unix_server(handle_client, path=self.path) # type: ignore[assignment]
+            else:
+                server_context = await asyncio.start_server(handle_client, self.host, self.port, ssl=self.ssl_context) # type: ignore[assignment]
         try:
             async with self.context():
                 async with server_context:
@@ -1071,39 +1063,12 @@ class Server(Encryption):
                     self._reset_last_request_time()
                     while not manual_exit.is_set() and not self.manual_exit.is_set():
                         try:
-                            if self.protocol in ["memory", "ws"]:
-                                # We sleep manually for these two protocols
-                                try:
-                                    await asyncio.sleep(SERVER_POLLING_INTERVAL)
-                                except:
-                                    raise asyncio.CancelledError
-                            else:
-                                if not server:
-                                    raise RuntimeError(f"{self.protocol} server failed to initialize, check logs.")
-                                # We'll use the loops sock_accept and wait_for for tcp and unix
-                                client_socket, addr = await asyncio.wait_for(
-                                    loop.sock_accept(server),
-                                    timeout=SERVER_POLLING_INTERVAL
-                                )
-                                if self.protocol != "unix":
-                                    client_ip = addr[0]
-                                    if not self._is_ip_allowed(client_ip):
-                                        client_socket.close()
-                                        continue
-                                logger.debug(f"Accepted connection from {client_socket}")
-                                loop.create_task(handle_client(client_socket))
-                                self._reset_last_request_time()
+                            await asyncio.sleep(SERVER_POLLING_INTERVAL)
                         except asyncio.TimeoutError:
                             pass
                         except asyncio.CancelledError:
                             logger.info(f"{type(self).__name__} listening on {self.address} was cancelled.")
                             return
-                        except RuntimeError as e:
-                            logger.error(f"{type(self).__name__}: RuntimeError in server loop: {e}")
-                            break
-                        except Exception as e:
-                            logger.error(f"{type(self).__name__}: Error in server loop: {e}")
-                            pass
                         if self._has_active_requests():
                             self._reset_last_request_time()
                         elif self._is_idle_timeout():

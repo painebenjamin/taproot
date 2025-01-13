@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import ssl
 import asyncio
-import socket
+import logging
+import ssl
 import struct
+import traceback
 
 from typing import Optional, Any, Tuple, Union, Dict
 from typing_extensions import Literal
@@ -593,87 +594,88 @@ class Client(Encryption):
                         raise result
                     return result
             else:
-                address: Union[str, Tuple[str, int]]
-                if self.protocol == "unix":
-                    assert self.path is not None, "Path must be set for UNIX sockets."
-                    address_label = self.path
-                    address = self.path
-                    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                else:
-                    address_label = f"{self.host}:{self.port}"
-                    address = (self.host, self.port)
-                    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-                # Connect to the server
-                client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                client.setblocking(False)
-                logger.debug(f"Connecting to {address_label}.")
                 try:
-                    await asyncio.get_running_loop().sock_connect(client, address)
-                except FileNotFoundError:
-                    raise ConnectionError(f"Could not connect to {address_label}.")
+                    address: Union[str, Tuple[str, int]]
+                    if self.protocol == "unix":
+                        assert self.path is not None, "Path must be set for UNIX sockets."
+                        address_label = self.path
+                        address = self.path
+                        logger.debug(f"Connecting to {address_label} with `asyncio.open_unix_connection`.")
+                        reader, writer = await asyncio.open_unix_connection(address)
+                    else:
+                        address_label = f"{self.host}:{self.port}"
+                        address = (self.host, self.port)
+                        logger.debug(f"Connecting to {address_label} with `asyncio.open_connection`.")
+                        reader, writer = await asyncio.open_connection(*address, ssl=self.ssl_context)
+                except Exception as e:
+                    raise ConnectionError(f"Could not connect to {address_label}: {e}")
 
-                message_data = pack_and_encode(request)
-                if self.use_encryption:
-                    message_data = self.encrypt(message_data)
+                try:
+                    message_data = pack_and_encode(request)
+                    if self.use_encryption:
+                        message_data = self.encrypt(message_data)
 
-                # Prefix the message with its length
-                message_len = len(message_data)
-                message_length = struct.pack('!I', message_len)
+                    # Prefix the message with its length
+                    message_len = len(message_data)
+                    message_length = struct.pack('!I', message_len)
 
-                logger.debug(f"Sending message of length {message_len} to {address_label} ({'encrypted' if self.use_encryption else 'unencrypted'}).")
-                await asyncio.get_running_loop().sock_sendall(client, message_length + message_data)
-                logger.debug(f"Message sent, awaiting response. Timeout: {timeout}")
-                await asyncio.sleep(.001)
+                    logger.debug(f"Sending message of length {message_len} to {address_label} ({'encrypted' if self.use_encryption else 'unencrypted'}).")
+                    writer.write(message_length + message_data)
+                    await writer.drain()
+                    logger.debug(f"Message sent, awaiting response. Timeout: {timeout}")
 
-                # Read the echoed message length
-                if timeout:
-                    length_data = await asyncio.wait_for(
-                        asyncio.get_running_loop().sock_recv(client, 4),
-                        timeout=timeout
-                    )
-                else:
-                    length_data = await asyncio.get_running_loop().sock_recv(client, 4)
-
-                message_len = int(struct.unpack('!I', length_data)[0])
-                logger.debug(f"Received message length {message_len}, reading message data.")
-
-                # Read the echoed message data
-                response = bytes()
-                while len(response) < message_len:
+                    # Read the response length
                     if timeout:
-                        packet = await asyncio.wait_for(
-                            asyncio.get_running_loop().sock_recv(client, message_len - len(response)),
+                        length_data = await asyncio.wait_for(
+                            reader.readexactly(4),
                             timeout=timeout
                         )
                     else:
-                        packet = await asyncio.get_running_loop().sock_recv(client, message_len - len(response))
-                    if not packet:
-                        break
-                    response += packet
+                        length_data = await reader.readexactly(4)
 
-                client.close()
-                if message_len == 0:
-                    return None
+                    message_len = int(struct.unpack('!I', length_data)[0])
+                    logger.debug(f"Received message length {message_len}, reading message data.")
 
-                if self.use_encryption:
+                    # Read the response data
+                    response = bytes()
+                    while len(response) < message_len:
+                        if timeout:
+                            packet = await asyncio.wait_for(
+                                reader.read(message_len - len(response)),
+                                timeout=timeout
+                            )
+                        else:
+                            packet = await reader.read(message_len - len(response))
+                        if not packet:
+                            break
+                        response += packet
+
+                    if message_len == 0:
+                        return None
+
+                    if self.use_encryption:
+                        try:
+                            response = self.decrypt(response)
+                        except Exception as e:
+                            logger.error(f"Error decrypting response from {address_label}. {e}")
                     try:
-                        response = self.decrypt(response)
-                    except Exception as e:
-                        logger.error(f"Error decrypting response from {address_label}. {e}")
-                try:
-                    result = decode_and_unpack(response) # type: ignore[arg-type,unused-ignore]
-                except:
-                    logger.error(f"Error decoding response from {address_label}.")
-                    raise
-                if isinstance(result, Exception):
-                    raise result
-                return result
+                        result = decode_and_unpack(response) # type: ignore[arg-type,unused-ignore]
+                    except:
+                        logger.error(f"Error decoding response from {address_label}.")
+                        raise
+
+                    if isinstance(result, Exception):
+                        raise result
+
+                    return result
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
 
         except Exception as e:
             if retries > 0:
                 logger.debug(f"Error querying {address_label}, retrying up to {retries} more time(s). {type(e).__name__}({e})")
-                if self.protocol == "ws" and timeout and retries:
+                if timeout and retries:
                     # Websockets return immediately, whereas the others will timeout after a time.
                     # To emulate the same behavior, we'll sleep for the remaining time.
                     actual_time = perf_counter() - execute_start
@@ -682,8 +684,10 @@ class Client(Encryption):
                         await asyncio.sleep(remaining_time)
                 elif retry_delay:
                     await asyncio.sleep(retry_delay)
+
                 if timeout_growth and timeout:
                     timeout = timeout * (1 + timeout_growth)
+
                 return await self(
                     request,
                     timeout=timeout,
@@ -694,11 +698,18 @@ class Client(Encryption):
                     retry_delay=retry_delay,
                     **kwargs
                 )
+
             if isinstance(e, asyncio.TimeoutError):
                 if timeout_response is not NOTSET:
                     logger.debug(f"Timeout querying {address_label}, returning timeout response.")
                     return timeout_response
+
             if error_response is not NOTSET:
                 logger.debug(f"Error querying {address_label}, returning error response.")
                 return error_response
+
+            logger.debug(f"Retries exhausted querying {address_label}, re-raising exception.")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(traceback.format_exc())
+
             raise # Finally, re-raise the exception

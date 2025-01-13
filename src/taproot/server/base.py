@@ -1035,7 +1035,10 @@ class Server(Encryption):
                                     else:
                                         result = await self._handle_control_request(request)
                                         if isinstance(result, str) and result == self._shutdown_key:
-                                            logger.info(f"Received exit request from {peername[0]}.")
+                                            if self.protocol == "unix":
+                                                logger.info(f"Received exit request.")
+                                            else:
+                                                logger.info(f"Received exit request from {peername[0]}.")
                                             manual_exit.set()
                                             result = None
                                 else:

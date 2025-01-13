@@ -21,7 +21,7 @@ deps = [
     "websockets",
 ]
 
-video_deps = [
+av_deps = [
     "pyav",
     "moviepy<2.0",
 ]
@@ -32,7 +32,7 @@ tool_deps = [
     "beautifulsoup4",
 ]
 
-console_deps = [
+cli_deps = [
     "tabulate",
     "termcolor",
     "tqdm"
@@ -57,10 +57,10 @@ setup(
     python_requires=">=3.8.0",
     install_requires=deps,
     extras_require={
-        "video": video_deps,
-        "tools": tool_deps,
-        "console": console_deps,
+        "av": av_deps,
         "uv": uv_deps,
+        "tools": tool_deps,
+        "cli": cli_deps,
     },
     entry_points={
         "console_scripts": [

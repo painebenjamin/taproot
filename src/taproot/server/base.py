@@ -921,9 +921,8 @@ class Server(Encryption):
                             num_bytes = len(response)
                             response_len = struct.pack('!I', num_bytes)
                             response = response_len + response
-                            num_chunks = int(num_bytes // WEBSOCKET_CHUNK_SIZE) + 1
-                            logger.debug(f"Serving response of length {num_bytes} in {num_chunks} chunk(s).")
-                            for chunk in chunk_bytes(response, WEBSOCKET_CHUNK_SIZE):
+                            logger.debug(f"Serving response of length {num_bytes} bytes.")
+                            for chunk in chunk_bytes(response, int(WEBSOCKET_CHUNK_SIZE*0.95)):
                                 try:
                                     await websocket.send(chunk)
                                 except ConnectionClosedOK:

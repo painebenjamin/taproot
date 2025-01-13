@@ -20,6 +20,7 @@ from .util import (
     get_server,
     get_server_runner,
     async_chat_loop,
+    run_echo_test,
     trim_html_whitespace,
     AsyncRunner,
 )
@@ -644,6 +645,23 @@ def echo(
                 control_encryption_key=control_encryption_key
             )
             get_server_runner(server).run(debug=log_level.upper()=="DEBUG")
+
+@main.command(name="echo-test", short_help="Runs an echo client for testing.")
+@click.argument("address", type=str, default=DEFAULT_ADDRESS)
+@context_options(include_model_dir=False, include_save_dir=False)
+def echo_test(
+    address: str=DEFAULT_ADDRESS,
+    log_level: str=DEFAULT_LOG_LEVEL,
+    add_import: List[str]=[],
+    quiet: bool=False
+) -> None:
+    """
+    Runs an echo client for testing.
+    """
+    with get_command_context(log_level, add_import, quiet):
+        async def run_test() -> None:
+            await run_echo_test(address)
+        AsyncRunner(run_test).run(debug=log_level.upper()=="DEBUG")
 
 @main.command(name="overseer", short_help="Runs an overseer (cluster entrypoint and node manager).")
 @click.option("--local", "-l", type=bool, default=False, help="Additionally run a local dispatcher while running the overseer.", show_default=True, is_flag=True)

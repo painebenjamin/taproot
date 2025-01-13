@@ -561,12 +561,12 @@ class Client(Encryption):
                     max_size=WEBSOCKET_CHUNK_SIZE,
                     additional_headers=self.websocket_headers
                 ) as websocket:
-                    logger.debug(f"Sending message to {self.address} (timeout: {timeout}).")
                     encoded = pack_and_encode(request)
                     encoded_len = struct.pack('!I', len(encoded))
                     encoded = encoded_len + encoded
 
-                    for i, chunk in enumerate(chunk_bytes(encoded, WEBSOCKET_CHUNK_SIZE)):
+                    logger.debug(f"Sending message to {self.address} (timeout: {timeout}, bytes: {len(encoded)}).")
+                    for i, chunk in enumerate(chunk_bytes(encoded, int(WEBSOCKET_CHUNK_SIZE*0.95))): # We're sending 95% of the max size to be safe
                         try:
                             await websocket.send(chunk)
                             if i > 0 and i % 2 == 0:
@@ -613,23 +613,17 @@ class Client(Encryption):
                 except FileNotFoundError:
                     raise ConnectionError(f"Could not connect to {address_label}.")
 
-                # Prefix the message with its length
-                if request is None:
-                    message_data = b""
-                elif not isinstance(request, bytes):
-                    message_data = pack_and_encode(request)
-                else:
-                    message_data = request
-
+                message_data = pack_and_encode(request)
                 if self.use_encryption:
                     message_data = self.encrypt(message_data)
 
+                # Prefix the message with its length
                 message_len = len(message_data)
                 message_length = struct.pack('!I', message_len)
 
                 logger.debug(f"Sending message of length {message_len} to {address_label} ({'encrypted' if self.use_encryption else 'unencrypted'}).")
                 await asyncio.get_running_loop().sock_sendall(client, message_length + message_data)
-                logger.debug(f"Message sent, awaiting response. Timeout: {timeout} {request=}")
+                logger.debug(f"Message sent, awaiting response. Timeout: {timeout}")
                 await asyncio.sleep(.001)
 
                 # Read the echoed message length

@@ -173,31 +173,40 @@ Task invoked in 6.5 s. Result:
 from taproot import Task
 sdxl = Task.get("image-generation", "stable-diffusion-xl")
 pipeline = sdxl()
-pipeline.load()
+pipeline.load() # Uses GPU 0 when available
 pipeline(prompt="Hello, world!").save("./output.png")
 ```
 
 ### With a Remote Server
 
 ```py
+import asyncio
 from taproot import Tap
-tap = Tap()
-tap.remote_address = "ws://127.0.0.1:32189"
-result = tap.call("image-generation", model="stable-diffusion-xl", prompt="Hello, world!")
-result.save("./output.png")
+
+async def main() -> None:
+    tap = Tap()
+    tap.remote_address = "ws://127.0.0.1:32189"
+    result = await tap("image-generation", model="stable-diffusion-xl", prompt="Hello, world!")
+    result.save("./output.png")
+
+asyncio.run(main)
 ```
 
 ### With a Local Server
 
-Also shows asynchronous usage.
+Also shows usage with `uvloop`.
 
 ```py
-import asyncio
+import uvloop
 from taproot import Tap
-with Tap.local() as tap:
-    loop = asyncio.get_event_loop()
-    result = loop.run_until_complete(tap("image-generation", model="stable-diffusion-xl", prompt="Hello, world!"))
-    result.save("./output.png")
+
+async def main() -> None:
+    async with Tap.local() as tap:
+        # Taproot is now running on ws://127.0.0.1:32189 with a local dispatcher
+        result = await tap("speech-synthesis", model="kokoro", text="Hello, world!")
+        result.save("./output.wav")
+
+uvloop.run(main)
 ```
 
 ## Running Servers

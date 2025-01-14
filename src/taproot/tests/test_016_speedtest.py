@@ -40,13 +40,13 @@ def test_echo_speed() -> None:
                 max_time = max(times)
                 median_time = sorted(times)[len(times) // 2]
                 mean_time = sum(times) / len(times)
-                transfer_rate = size / mean_time
-                print(f"  {human_size(size, precision=0)}")
+                transfer_rate = size * 2 / mean_time
+                print(f"  {blue(human_size(size, precision=0))}")
                 print(f"    min: {green(human_duration(min_time))}")
                 print(f"    max: {green(human_duration(max_time))}")
                 print(f"    median: {green(human_duration(median_time))}")
                 print(f"    mean: {green(human_duration(mean_time))}")
-                print(f"    transfer rate: {blue(human_size(transfer_rate) + '/s')}")
+                print(f"    transfer rate: {green(human_size(transfer_rate) + '/s')}")
         print(
             save_test_image(
                 plot_echo_test_results(results),

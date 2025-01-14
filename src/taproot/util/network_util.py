@@ -386,6 +386,9 @@ def find_free_unix_socket() -> str:
     """
     Find a free UNIX socket path on the local machine.
     """
+    directory = os.getenv("TAPROOT_UNIX_SOCKET_DIR", None)
+    if directory:
+        return tempfile.mktemp(prefix="socket_", dir=directory)
     return tempfile.mktemp(prefix="socket_")
 
 def find_free_port() -> int:

@@ -11,10 +11,11 @@ from packaging.specifiers import SpecifierSet
 from typing import Union, Optional, Dict, List, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..payload import RequiredLibrary
+    from ..payload import RequiredLibrary, RequiredBinary
 
 __all__ = [
     "assert_required_library_installed",
+    "assert_required_binary_installed",
     "combine_package_specifications",
     "get_combined_specifications",
     "get_installed_package_version",
@@ -30,6 +31,7 @@ __all__ = [
     "installed_package_matches_spec",
     "is_torch_package",
     "required_library_is_available",
+    "required_binary_is_available",
     "version_matches_spec",
 ]
 
@@ -385,6 +387,16 @@ def required_library_is_available(library: RequiredLibrary) -> bool:
     library_names = [library["name"]] + library.get("aliases", [])
     return external_library_is_available(*library_names)
 
+def required_binary_is_available(binary: RequiredBinary) -> bool:
+    """
+    Check if a required binary is available.
+    """
+    binary_names = [binary["name"]] + binary.get("aliases", [])
+    for binary_name in binary_names:
+        if binary_is_available(binary_name):
+            return True
+    return False
+
 def get_required_library_unavailable_message(library: RequiredLibrary) -> str:
     """
     Get an error message for an unavailable required library.
@@ -395,6 +407,20 @@ def get_required_library_unavailable_message(library: RequiredLibrary) -> str:
     alternative_names = [name for name in unique_names if name != library["name"]]
     return "Required library '{0:s}' (alternative{1:s}: {2:s}) is not available.".format(
         library["name"],
+        "s" if len(alternative_names) > 1 else "",
+        ", ".join(alternative_names)
+    )
+
+def get_required_binary_unavailable_message(binary: RequiredBinary) -> str:
+    """
+    Get an error message for an unavailable required binary.
+    """
+    unique_names = list(set([binary["name"]] + binary.get("aliases", [])))
+    if len(unique_names) == 1:
+        return f"Required binary '{unique_names[0]}' is not available."
+    alternative_names = [name for name in unique_names if name != binary["name"]]
+    return "Required binary '{0:s}' (alternative{1:s}: {2:s}) is not available.".format(
+        binary["name"],
         "s" if len(alternative_names) > 1 else "",
         ", ".join(alternative_names)
     )
@@ -430,6 +456,44 @@ def assert_required_library_installed(library: RequiredLibrary) -> None:
             install_command = f"run `{package_manager} install {package_name}`"
     elif platform_name == "windows":
         url = library.get("win", None)
+        if url is not None:
+            install_command = f"visit {url} and download the appropriate installer."
+
+    if install_command is not None:
+        raise RuntimeError(f"{unavailable_message} To install, {install_command}")
+    raise RuntimeError(unavailable_message)
+
+def assert_required_binary_installed(binary: RequiredBinary) -> None:
+    """
+    Assert that a required binary is installed.
+
+    When not installed, tries to determine the appropriate package manager
+    and produce an informative error message - at the moment we do not
+    support installing external binaries automatically.
+    """
+    if required_binary_is_available(binary):
+        return
+
+    unavailable_message = get_required_binary_unavailable_message(binary)
+    install_command: Optional[str] = None
+    package_manager: Optional[str] = None
+    platform_name = platform.system().lower()
+    if platform_name == "linux":
+        if apt_is_available():
+            package_manager = "apt"
+        elif yum_is_available():
+            package_manager = "yum"
+        elif dnf_is_available():
+            package_manager = "dnf"
+    elif platform_name == "darwin" and brew_is_available():
+        package_manager = "brew"
+
+    if package_manager is not None:
+        package_name = binary.get(package_manager, None)
+        if package_name is not None:
+            install_command = f"run `{package_manager} install {package_name}`"
+    elif platform_name == "windows":
+        url = binary.get("win", None)
         if url is not None:
             install_command = f"visit {url} and download the appropriate installer."
 

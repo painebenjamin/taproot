@@ -11,16 +11,19 @@ from time import perf_counter
 from types import TracebackType
 from typing import Set, List, Optional, Iterator, Any, Type, Dict, Tuple, Union, TYPE_CHECKING
 from typing_extensions import Literal
-from random import choice, choices
+from random import choice, choices, randbytes
 from contextlib import contextmanager
 
 from .audio_util import EncodedAudioProxy
 from .number_util import NumericMixin
+from .terminal_util import maybe_use_tqdm
+from .string_util import human_size, human_duration
 
 if TYPE_CHECKING:
     import torch
     from PIL import Image
     from ..tasks import Task
+    from ..client import Client
 
 __all__ = [
     "profiler",
@@ -51,6 +54,8 @@ __all__ = [
     "assert_text_equality",
     "assert_test_output",
     "execute_task_test_suite",
+    "execute_echo_test",
+    "plot_echo_test_results",
 ]
 
 @contextmanager
@@ -706,7 +711,7 @@ def save_test_image(
     image: Image.Image,
     subject: str,
     directory: str="results",
-) -> None:
+) -> str:
     """
     Saves a test image.
     """
@@ -726,7 +731,9 @@ def save_test_image(
     os.makedirs(save_directory, exist_ok=True)
     existing_subject_images = [image for image in os.listdir(save_directory) if subject in image]
     number = len(existing_subject_images) + 1
-    image.save(os.path.join(save_directory, f"{subject}_{width}x{height}_{number:04d}.png"))
+    path = os.path.join(save_directory, f"{subject}_{width}x{height}_{number:04d}.png")
+    image.save(path)
+    return path
 
 def save_test_video(
     frames: List[Image.Image],
@@ -734,7 +741,7 @@ def save_test_video(
     format: str="mp4",
     directory: str="results",
     frame_rate: int=8,
-) -> None:
+) -> str:
     """
     Saves a test video.
     """
@@ -752,10 +759,12 @@ def save_test_video(
     os.makedirs(data_directory, exist_ok=True)
     existing_subject_videos = [video for video in os.listdir(data_directory) if subject in video]
     number = len(existing_subject_videos) + 1
+    path = os.path.join(data_directory, f"{subject}_{number:04d}.{format}")
     Video(
         frames=frames,
         frame_rate=frame_rate
-    ).save(os.path.join(data_directory, f"{subject}_{number:04d}.{format}"))
+    ).save(path)
+    return path
 
 def save_test_audio(
     audio: Union[torch.Tensor, str, bytes, EncodedAudioProxy],
@@ -763,7 +772,7 @@ def save_test_audio(
     directory: str="results",
     sample_rate: int=44100,
     data_format: str="wav",
-) -> None:
+) -> str:
     """
     Saves a test audio.
     """
@@ -783,19 +792,25 @@ def save_test_audio(
     number = len(existing_subject_audios) + 1
     if isinstance(audio, str):
         extension = os.path.splitext(audio)[1]
-        os.rename(audio, os.path.join(data_directory, f"{subject}_{number:04d}.{extension}"))
+        path = os.path.join(data_directory, f"{subject}_{number:04d}.{extension}")
+        os.rename(audio, path)
     elif isinstance(audio, bytes):
-        with open(os.path.join(data_directory, f"{subject}_{number:04d}.{data_format}"), "wb") as file:
+        path = os.path.join(data_directory, f"{subject}_{number:04d}.{data_format}")
+        with open(path, "wb") as file:
             file.write(audio)
     elif isinstance(audio, EncodedAudioProxy):
-        with open(os.path.join(data_directory, f"{subject}_{number:04d}.{audio.format}"), "wb") as file:
+        path = os.path.join(data_directory, f"{subject}_{number:04d}.{audio.format}")
+        with open(path, "wb") as file:
             file.write(audio.data)
     else:
-        audio_write(
-            os.path.join(data_directory, f"{subject}_{number:04d}"),
-            audio_to_bct_tensor(audio, sample_rate=sample_rate)[0][0],
-            sample_rate=sample_rate
+        path = str(
+            audio_write(
+                os.path.join(data_directory, f"{subject}_{number:04d}"),
+                audio_to_bct_tensor(audio, sample_rate=sample_rate)[0][0],
+                sample_rate=sample_rate
+            )
         )
+    return path
 
 IMAGE_SIMILARITY: Optional[Task] = None
 def get_image_similarity(
@@ -986,3 +1001,225 @@ def execute_task_test_suite(
         raise last_exception
 
     return test_output
+
+async def execute_echo_test(
+    client: Client,
+    packet_size_bytes: Tuple[int, ...] = (
+        1, 10,
+        100, 1_000,
+        10_000, 100_000,
+        1_000_000, 2_000_000,
+        5_000_000, 10_000_000
+    ),
+    num_packets_per_size: int = 10,
+    use_tqdm: bool = True
+) -> Dict[int, List[float]]:
+    """
+    Runs a test echo client.
+    """
+    # Generate test data
+    test_packets = [
+        [randbytes(packet_size) for _ in range(num_packets_per_size)]
+        for packet_size in packet_size_bytes
+    ]
+
+    # Send data in striped packages (e.g. 1 byte, 1KB, 1MB, 1 byte, 1KB, 1MB, ...)
+    test_times: List[List[float]] = []
+    for i in maybe_use_tqdm(range(num_packets_per_size), use_tqdm=use_tqdm, desc="Iteration"):
+        test_times.append([])
+        for j, packet_list in enumerate(test_packets):
+            with time_counter() as timer:
+                result = await client(packet_list[i])
+            assert result == packet_list[i], "Echo test failed!"
+            test_times[-1].append(float(timer))
+
+    # Transpose
+    test_times = list(zip(*test_times)) # type: ignore[arg-type]
+    return dict(zip(packet_size_bytes, test_times))
+
+def plot_echo_test_results(
+    protocol_packet_data: Dict[str, Dict[int, List[float]]],
+    theme: str="ggplot",
+    height: int=8,
+    use_grid: bool=True,
+    grid_style: str="--",
+    grid_alpha: float=0.5,
+    use_tight_layout: bool=True,
+    box_width: float=0.6,
+    box_face_color: str="#90caf9",
+    box_edge_color: str="#0d47a1",
+    median_color: str="#0d47a1",
+    median_width: int=2,
+    whisker_color: str="#0d47a1",
+    whisker_style: str="-",
+    cap_color: str="#0d47a1",
+    flier_marker: str="o",
+    flier_color: str="#0d47a1",
+    flier_size: int=5,
+    flier_edge_color: str="none",
+    flier_alpha: float=0.7,
+    transfer_rate_color: str="#f57c00",
+    transfer_rate_marker: str="o",
+    transfer_rate_size: int=5,
+) -> Image.Image:
+    """
+    Produce a box-and-whisker plot of execution times vs. packet size.
+
+    :param packet_data: Packet sizes (bytes) to execution times (seconds)
+    :param theme: Theme for the plot
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    # Prepare data
+    protocol_names = sorted(protocol_packet_data.keys())
+    num_protocols = len(protocol_names)
+    packet_sizes = sorted(
+        set(
+            size
+            for protocol in protocol_packet_data
+            for size in protocol_packet_data[protocol]
+        )
+    )
+    num_sizes = len(packet_sizes)
+    boxplot_data = []
+    group_labels = []
+    for protocol in protocol_names:
+        for size in packet_sizes:
+            boxplot_data.append(protocol_packet_data[protocol].get(size, []))
+            group_labels.append((protocol, size))
+
+    x_positions = np.arange(1, num_protocols * num_sizes + 1)
+    group_centers = []
+    for i in range(num_protocols):
+        start = i * num_sizes + 1
+        end = (i + 1) * num_sizes
+        center = (start + end) / 2.0
+        group_centers.append(center)
+
+    # Prepare plot
+    plt.style.use(theme)
+
+    # Create primary X-axis for execution time
+    fig, ax1 = plt.subplots(figsize=(int(len(x_positions)/2) + 4, height))
+    bplot = ax1.boxplot(
+        boxplot_data,
+        positions=x_positions,
+        patch_artist=True,
+        widths=box_width
+    )
+
+    # Set colors
+    for box in bplot["boxes"]:
+        box.set(
+            facecolor=box_face_color,
+            edgecolor=box_edge_color
+        )
+
+    for median in bplot["medians"]:
+        median.set(
+            color=median_color,
+            linewidth=median_width
+        )
+
+    for whisker in bplot["whiskers"]:
+        whisker.set(
+            color=whisker_color,
+            linestyle=whisker_style
+        )
+
+    for cap in bplot["caps"]:
+        cap.set(color=cap_color)
+
+    for flier in bplot["fliers"]:
+        flier.set(
+            marker=flier_marker,
+            markerfacecolor=flier_color,
+            markersize=flier_size,
+            markeredgecolor=flier_edge_color,
+            alpha=flier_alpha
+        )
+
+    # Set plot title and axis labels
+    ax1.set_title(
+        f"Round-Trip Times and Transfer Rate by Protocol and Packet Size",
+        fontsize=14
+    )
+    ax1.set_ylabel("Execution Time", fontsize=12)
+    ax1.set_yscale("log")
+
+    # Convert the y-ticks to human-readable durations
+    yticks = ax1.get_yticks()
+    ax1.set_yticks(yticks)
+    ax1.set_yticklabels([human_duration(tick, precision=0) for tick in yticks])
+
+    # Add grid
+    if use_grid:
+        ax1.grid(True, linestyle=grid_style, alpha=grid_alpha)
+
+    # Set X-axis labels
+    x_labels = [
+        human_size(s, precision=0) for (_, s) in group_labels
+    ]
+    ax1.set_xticks(x_positions)
+    ax1.set_xticklabels(x_labels, rotation=45)
+
+    # Create secondary X-axis for protocol names
+    ax2 = ax1.secondary_xaxis("top")
+    ax2.set_xlim(ax1.get_xlim())
+    ax2.set_xticks(group_centers)
+    ax2.set_xticklabels(protocol_names, rotation=0)
+    ax2.tick_params(axis="x", labelrotation=0, labelsize=12)
+
+    # Create a secondary Y-axis for transfer rate
+    ax3 = ax1.twinx()  # Share the same x-axis
+    ax3.set_ylabel("Transfer Rate", fontsize=12)
+    ax3.set_yscale("log")
+    ax3.tick_params(axis="y")
+
+    # Plot transfer rate for each protocol separately
+    for i, protocol in enumerate(protocol_names):
+        sizes = sorted(protocol_packet_data[protocol].keys())
+        median_durations = [
+            np.median(protocol_packet_data[protocol][size])
+            for size in sizes
+        ]
+        transfer_rates = [
+            size * 2 / duration
+            for size, duration in zip(sizes, median_durations)
+        ]
+        x_coords = [i * num_sizes + j + 1 for j in range(num_sizes)]
+
+        ax3.plot(
+            x_coords,
+            transfer_rates,
+            color=transfer_rate_color,
+            marker=transfer_rate_marker,
+            markersize=transfer_rate_size,
+            label=None if i > 0 else "Transfer Rate"
+        )
+
+    # Format transfer rate ticks using human_size
+    yticks_transfer = ax3.get_yticks()
+    ax3.set_yticks(yticks_transfer)
+    ax3.set_yticklabels([
+        "" if tick < 0 else f"{human_size(tick, precision=0)}/s"
+        for tick in yticks_transfer
+    ])
+
+    # Add a legend for the transfer rate line
+    ax3.legend(loc="upper left")
+
+    # Adjust layout
+    if use_tight_layout:
+        plt.tight_layout()
+
+    fig.canvas.draw()
+
+    # Return as image
+    return Image.frombytes(
+        "RGBA",
+        fig.canvas.get_width_height(),
+        fig.canvas.buffer_rgba() # type: ignore[attr-defined]
+    )

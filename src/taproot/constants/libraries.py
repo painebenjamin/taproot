@@ -1,7 +1,7 @@
 from ..payload import RequiredLibrary
 
 __all__ = [
-    "LIBRARY_ESPEAK"
+    "LIBRARY_ESPEAK",
 ]
 
 LIBRARY_ESPEAK: RequiredLibrary = {

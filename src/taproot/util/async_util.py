@@ -6,6 +6,8 @@ import signal
 
 from typing import Any, Callable, Awaitable, List, Optional, Coroutine, TYPE_CHECKING
 
+from multiprocessing import Process
+
 from .log_util import logger
 
 if TYPE_CHECKING:
@@ -20,6 +22,7 @@ __all__ = [
     "AsyncRunner",
     "TaskRunner",
     "ServerRunner",
+    "ServerSubprocessRunner",
 ]
 
 UVLOOP_AVAILABLE: Optional[bool] = None
@@ -286,3 +289,63 @@ class ServerRunner:
             asyncio.run(
                 self.main(install_signal_handlers=install_signal_handlers)
             )
+
+class ServerSubprocessRunner:
+    """
+    A class for running multiple servers in a subprocess.
+    """
+    max_sleep_time: float = 10.0
+    sleep_interval: float = 0.1
+    process: Optional[Process] = None
+
+    def __init__(self, *servers: Server) -> None:
+        self.servers = list(servers)
+        self.runner = ServerRunner(*servers)
+        self.process = None
+
+    def start(self) -> None:
+        """
+        Starts the servers in a subprocess.
+        """
+        self.process = Process(target=self.run)
+        self.process.start()
+
+    async def stop(self) -> None:
+        """
+        Stops the servers.
+        """
+        if self.process is None:
+            return
+
+        for server in self.servers:
+            await server.exit()
+
+        sleep_time = 0.0
+        while self.process.is_alive() and sleep_time < self.max_sleep_time:
+            await asyncio.sleep(self.sleep_interval)
+            sleep_time += self.sleep_interval
+
+        if self.process.is_alive():
+            logger.warning("Server subprocess did not exit cleanly, terminating.")
+            self.process.terminate()
+        else:
+            logger.info("Server subprocess exited cleanly.")
+
+    def run(self) -> None:
+        """
+        Subprocess target for running the servers.
+        """
+        self.runner.run(install_signal_handlers=False)
+
+    async def __aenter__(self) -> ServerSubprocessRunner:
+        """
+        Starts the server subprocess.
+        """
+        self.start()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        """
+        Stops the server subprocess.
+        """
+        await self.stop()

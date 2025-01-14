@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
 import math
 
-from typing import Optional, Dict, Tuple, TYPE_CHECKING
+from typing import Optional, Dict, Tuple, List, TYPE_CHECKING
 
 from taproot.constants import *
+from taproot.payload import RequiredLibrary
 from taproot.util import (
     audio_to_bct_tensor,
     is_multi_audio,
@@ -65,6 +67,16 @@ class DeepFilterNet3Enhancement(Task):
             "safetensors": SAFETENSORS_VERSION_SPEC,
             "accelerate": ACCELERATE_VERSION_SPEC,
         }
+
+    @classmethod
+    def required_binaries(cls, allow_optional: bool=True) -> List[RequiredLibrary]:
+        """
+        Python 3.12 and up requires rust to build from source.
+        """
+        version = sys.version_info
+        if version.major >= 3 and version.minor >= 10:
+            return [BINARY_RUST]
+        return []
 
     """Internal Task Attributes"""
 

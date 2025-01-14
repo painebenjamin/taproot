@@ -350,22 +350,63 @@ class CPU:
     """
     This class holds details about the CPU as returned by the appropriate subprocess.
     """
-
     load: float  # 0-1
+    name: Optional[str] = None
+
+    @classmethod
+    def get_cpu_info(cls) -> Optional[List[Dict[str, Any]]]:
+        """
+        Gets CPU information from /proc/cpuinfo. Only works on Linux.
+        """
+        if platform.system() != "Linux":
+            return None
+
+        with open("/proc/cpuinfo", "r") as f:
+            lines = f.readlines()
+
+        cpus = []
+        cpu: Dict[str, Any] = {}
+        for line in lines:
+            if line == "\n":
+                cpus.append(cpu)
+                cpu = {}
+            else:
+                key, value = line.split(":", 1)
+                cpu[key.strip()] = value.strip()
+        return cpus
+
+    @classmethod
+    def get_cpu_name(cls) -> Optional[str]:
+        """
+        Gets the first CPU name from /proc/cpuinfo. Only works on Linux.
+        """
+        cpu_info = cls.get_cpu_info()
+        if cpu_info is not None and cpu_info:
+            return cpu_info[0].get("model name", None) # type: ignore[no-any-return]
+        return None
 
     @classmethod
     def get_cpus(cls, interval: float = 0.1) -> Iterator[CPU]:
         """
         Gets all CPUs and their current load.
         """
-        for cpu in psutil.cpu_percent(interval=interval, percpu=True):
-            yield CPU(load=cpu / 100.0)
+        cpu_info = cls.get_cpu_info()
+        num_cpu_infos = len(cpu_info) if cpu_info is not None else 0
+        for i, cpu in enumerate(psutil.cpu_percent(interval=interval, percpu=True)):
+            name = None
+            if cpu_info is not None and i < num_cpu_infos:
+                name = cpu_info[i].get("model name", None)
+
+            yield CPU(
+                load=cpu / 100.0,
+                name=name
+            )
 
     def __hash__(self) -> int:
         """
         Hash the CPU object.
         """
-        return hash(self.load)
+        return hash((self.load, self.name))
 
 
 @dataclass

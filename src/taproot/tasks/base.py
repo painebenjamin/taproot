@@ -15,6 +15,7 @@ from ..payload import *
 from ..util import (
     # Methods
     assert_required_library_installed,
+    assert_required_binary_installed,
     audio_write,
     check_download_files_to_dir,
     estimate_parameter_bytes,
@@ -37,6 +38,7 @@ from ..util import (
     profiler,
     ram_counter,
     required_library_is_available,
+    required_binary_is_available,
     restrict_gpu,
     time_counter,
     timed_lru_cache,
@@ -108,6 +110,7 @@ class Task(ConfigMixin, IntrospectableMixin):
     static_gpu_memory_gb: Optional[float] = None
     runtime_gpu_memory_gb: Optional[float] = None
     libraries: Optional[List[RequiredLibrary]] = None
+    binaries: Optional[List[RequiredBinary]] = None
 
     """Catalog metadata"""
     display_name: Optional[str] = None  # Display name for the task
@@ -589,6 +592,15 @@ class Task(ConfigMixin, IntrospectableMixin):
         return task_libraries + sub_task_libraries
 
     @classmethod
+    def required_binaries(cls, allow_optional: bool=True) -> List[RequiredBinary]:
+        """
+        Get the required binaries for the task.
+        """
+        task_binaries = [] if cls.binaries is None else cls.binaries
+        sub_task_binaries = cls.get_task_loader(allow_optional=allow_optional).get_required_binaries()
+        return task_binaries + sub_task_binaries
+
+    @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
         """
         Get the required packages for the task.
@@ -678,6 +690,11 @@ class Task(ConfigMixin, IntrospectableMixin):
         # First check for required libraries for this task
         for library in cls.required_libraries():
             if not required_library_is_available(library):
+                return False
+
+        # Next check for required binaries for this task
+        for binary in cls.required_binaries():
+            if not required_binary_is_available(binary):
                 return False
 
         # Next check for required packages for this task
@@ -813,6 +830,9 @@ class Task(ConfigMixin, IntrospectableMixin):
         for library in cls.required_libraries():
             # will raise import error, potentially with instructions how to install
             assert_required_library_installed(library)
+        for binary in cls.required_binaries():
+            # will raise import error, potentially with instructions how to install
+            assert_required_binary_installed(binary)
 
         cls.install_required_packages()
         cls.download_required_files(

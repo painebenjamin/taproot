@@ -15,6 +15,7 @@ __all__ = [
     "OverseerStatusPayload",
     "FlexibleResultMapping",
     "RequiredLibrary",
+    "RequiredBinary"
 ]
 
 class ParameterMetadataPayload(TypedDict):
@@ -92,4 +93,8 @@ class RequiredLibrary(TypedDict):
     yum: NotRequired[Optional[str]]
     dnf: NotRequired[Optional[str]]
     brew: NotRequired[Optional[str]]
+    conda: NotRequired[Optional[str]]
     win: NotRequired[Optional[str]]
+
+class RequiredBinary(RequiredLibrary):
+    pass

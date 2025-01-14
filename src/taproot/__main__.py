@@ -20,7 +20,6 @@ from .util import (
     get_server,
     get_server_runner,
     async_chat_loop,
-    run_echo_test,
     trim_html_whitespace,
     AsyncRunner,
 )
@@ -37,7 +36,7 @@ def main() -> None:
     pass
 
 @main.command(name="machine-capability", short_help="Print machine capability.")
-@context_options(include_quiet=False)
+@context_options(include_quiet=False, include_model_dir=False)
 def machine_capability(
     log_level: str=DEFAULT_LOG_LEVEL,
     add_import: List[str]=[]
@@ -194,6 +193,7 @@ def info(
             get_pip_package_name,
             installed_package_matches_spec,
             required_library_is_available,
+            required_binary_is_available,
             green,
             yellow,
             cyan,
@@ -218,6 +218,7 @@ def info(
 
         task_is_available = task_class.is_available(allow_optional=optional, model_dir=model_dir)
         task_libraries = task_class.required_libraries(allow_optional=optional)
+        task_binaries = task_class.required_binaries(allow_optional=optional)
         task_files = task_class.required_files(allow_optional=optional)
         task_packages = task_class.combined_required_packages(allow_optional=optional)
         task_signature = task_class.introspect()
@@ -274,6 +275,14 @@ def info(
                 else:
                     available_label = red("[not available]")
                 click.echo(f"    {blue(library['name'])} {available_label}")
+        if task_binaries:
+            click.echo("Required binaries:")
+            for binary in task_binaries:
+                if required_binary_is_available(binary):
+                    available_label = green("[available]")
+                else:
+                    available_label = red("[not available]")
+                click.echo(f"    {blue(binary['name'])} {available_label}")
         if task_files:
             total_size = 0
             click.echo("Required files:")
@@ -645,23 +654,6 @@ def echo(
                 control_encryption_key=control_encryption_key
             )
             get_server_runner(server).run(debug=log_level.upper()=="DEBUG")
-
-@main.command(name="echo-test", short_help="Runs an echo client for testing.")
-@click.argument("address", type=str, default=DEFAULT_ADDRESS)
-@context_options(include_model_dir=False, include_save_dir=False)
-def echo_test(
-    address: str=DEFAULT_ADDRESS,
-    log_level: str=DEFAULT_LOG_LEVEL,
-    add_import: List[str]=[],
-    quiet: bool=False
-) -> None:
-    """
-    Runs an echo client for testing.
-    """
-    with get_command_context(log_level, add_import, quiet):
-        async def run_test() -> None:
-            await run_echo_test(address)
-        AsyncRunner(run_test).run(debug=log_level.upper()=="DEBUG")
 
 @main.command(name="overseer", short_help="Runs an overseer (cluster entrypoint and node manager).")
 @click.option("--local", "-l", type=bool, default=False, help="Additionally run a local dispatcher while running the overseer.", show_default=True, is_flag=True)

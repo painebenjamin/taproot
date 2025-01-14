@@ -6,14 +6,13 @@ import click
 import signal
 import asyncio
 
-from random import randint, randbytes
+from random import randint
 from typing import (
     Any,
     Callable,
     Iterator,
     List,
     Optional,
-    Tuple,
     TYPE_CHECKING,
     Type,
     TypeVar
@@ -25,10 +24,7 @@ from ..constants import *
 from .log_util import debug_logger, logger
 from .system_util import catch_output
 from .async_util import ServerRunner, aioconsole_is_available
-from .string_util import human_size, human_duration
-from .test_util import time_counter
 from .terminal_util import (
-    maybe_use_tqdm,
     magenta,
     green,
     cyan,
@@ -49,7 +45,6 @@ __all__ = [
     "server_options",
     "get_server",
     "get_server_runner",
-    "run_echo_test",
     "async_chat_loop"
 ]
 
@@ -363,51 +358,6 @@ def get_server_runner(*servers: Server) -> ServerRunner:
     runner.before_stop(lambda: click.echo(f"Stopping {server_labels}."))
     runner.after_stop(lambda: click.echo(f"Stopped {server_labels}."))
     return runner
-
-async def run_echo_test(
-    address: str,
-    packet_size_bytes: Tuple[int, ...] = (1, 1_000, 1_000_000, 10_000_000),
-    num_packets_per_size: int = 3,
-    use_tqdm: bool = True
-) -> None:
-    """
-    Runs a test echo client.
-    """
-    from ..client import Client
-    client = Client()
-    client.address = address
-
-    # Generate test data
-    test_packets = [
-        [randbytes(packet_size) for _ in range(num_packets_per_size)]
-        for packet_size in packet_size_bytes
-    ]
-
-    # Send data in striped packages (e.g. 1 byte, 1KB, 1MB, 1 byte, 1KB, 1MB, ...)
-    test_times: List[List[float]] = []
-    for i in maybe_use_tqdm(range(num_packets_per_size), use_tqdm=use_tqdm, desc="Iteration"):
-        test_times.append([])
-        for j, packet_list in enumerate(test_packets):
-            with time_counter() as timer:
-                result = await client(packet_list[i])
-            assert result == packet_list[i], "Echo test failed!"
-            test_times[-1].append(float(timer))
-
-    # Transpose
-    test_times = list(zip(*test_times)) # type: ignore[arg-type]
-
-    # Calculate average times
-    average_times = [sum(times) / len(times) for times in test_times]
-
-    # Print results
-    click.echo("Echo test results:")
-    for i, packet_size in enumerate(packet_size_bytes):
-        click.echo(f"Packet size: {magenta(human_size(packet_size))}")
-        for j in range(num_packets_per_size):
-            click.echo(f"Packet {j + 1}: {green(human_duration(test_times[i][j]))}")
-        click.echo(f"Average time: {green(human_duration(average_times[i]))}")
-        click.echo(f"Transfer rate: {cyan(human_size(packet_size * 2 / average_times[i]))}/s")
-        click.echo()
 
 async def async_chat_loop(
     model: Optional[str]=None,

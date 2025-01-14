@@ -11,7 +11,7 @@ from taproot.util import (
 if TYPE_CHECKING:
     import torch
     from taproot.tasks.base import Task
-    from taproot.payload import RequiredLibrary
+    from taproot.payload import RequiredLibrary, RequiredBinary
 
 __all__ = ["Loader", "PretrainedLoader", "TaskLoader"]
 
@@ -44,6 +44,14 @@ class Loader:
     def get_required_libraries(self) -> List[RequiredLibrary]:
         """
         Gets the required libraries for all models.
+
+        This only makes sense for tasks, not models.
+        """
+        return []
+
+    def get_required_binaries(self) -> List[RequiredBinary]:
+        """
+        Gets the required binaries for all models.
 
         This only makes sense for tasks, not models.
         """
@@ -274,6 +282,17 @@ class TaskLoader(Loader):
         for task_class in self.tasks.values():
             library_list.extend(task_class.required_libraries())
         return library_list
+
+    def get_required_binaries(self) -> List[RequiredBinary]:
+        """
+        Gets the required binaries for all models.
+
+        This only makes sense for tasks, not models.
+        """
+        binary_list: List[RequiredBinary] = []
+        for task_class in self.tasks.values():
+            binary_list.extend(task_class.required_binaries())
+        return binary_list
 
     def get_required_files(self) -> List[str]:
         """

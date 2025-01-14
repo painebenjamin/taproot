@@ -266,7 +266,12 @@ class UnifiedLoggingContext:
         """
         Find initialized loggers and set their level/handler.
         """
-        from logging import _acquireLock, _releaseLock, getLevelName # type: ignore[attr-defined]
+        from logging import getLevelName
+        try:
+            from logging import _acquireLock, _releaseLock # type: ignore[attr-defined]
+        except ImportError:
+            _acquireLock = lambda: None
+            _releaseLock = lambda: None
         global taproot_static_handlers, taproot_static_level, taproot_is_frozen
         _acquireLock()
         # First freeze future loggers

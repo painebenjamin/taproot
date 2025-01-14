@@ -20,6 +20,20 @@ Taproot is a seamlessly scalable AI/ML inference engine designed for deployment 
 
 Most AI/ML inference engines are built for either large-scale cloud infrastructures or constrained edge devices - Taproot is designed for **medium-scale deployments**, offering flexible and distributed on-premise or PAYG setups. It efficiently uses older or consumer-grade hardware, making it suitable for small networks or ad-hoc clusters, without relying on centralized, hyperscale architectures.
 
+Taproot is also **really, really fast** with latency as low as **50 microseconds** per request and transfer rates over **1 GB/s** on consumer hardware.
+
+<div align="center">
+<a href="https://github.com/user-attachments/assets/b63945b1-e7cc-4812-9ab5-5f4750c1b204" target="_blank">
+<img src="https://github.com/user-attachments/assets/b63945b1-e7cc-4812-9ab5-5f4750c1b204" width=640 />
+</a><br />
+<em>Taproot server/client round-trip echo times for varying packet sizes, grouped by supported protocol.</em>
+</div><br/>
+
+
+Two encryption methods are also supported:
+1. `tcps` uses raw `tcp` socket communication with bidirectional AES-NI encryption, configured with a key on server and client.
+2. `wss` uses OpenSSL to serve standard TLS connections, configured with a key, certificate and optionally chain.
+
 ## Available Models
 
 There are more than 170 models available across 18 task categories. See the [Task Catalog](https://github.com/painebenjamin/taproot/wiki/Task-Catalog) for the complete list, licenses, requirements and citations. Despite the large number of models available, there are many more yet to be added - if you're looking for a particular enhancement, don't hesitate to make an issue on this repository to request it.

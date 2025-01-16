@@ -4,6 +4,6 @@ __all__ = ["StableDiffusionPhotonV1UNet"]
 
 class StableDiffusionPhotonV1UNet(StableDiffusionUNet):
     """
-    DreamShaper's UNet model, extracted.
+    Photon V1 UNet Model
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-photon-v1-unet.fp16.safetensors"

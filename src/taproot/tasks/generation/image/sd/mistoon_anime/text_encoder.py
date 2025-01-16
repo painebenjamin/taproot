@@ -6,6 +6,6 @@ __all__ = [
 
 class StableDiffusionMistoonAnimeV3TextEncoder(CLIPViTLTextEncoder):
     """
-    SDXL Counterfeit v2.5 Primary Text Encoder model
+    Mistoon Anime V3 Text Encoder
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-mistoon-anime-v3-text-encoder.fp16.safetensors"

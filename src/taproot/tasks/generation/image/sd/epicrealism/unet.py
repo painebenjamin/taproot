@@ -4,6 +4,6 @@ __all__ = ["StableDiffusionEpicRealismV5UNet"]
 
 class StableDiffusionEpicRealismV5UNet(StableDiffusionUNet):
     """
-    DreamShaper's UNet model, extracted.
+    EpicRealism V5 UNet Model
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-epicrealism-v5-unet.fp16.safetensors"

@@ -6,6 +6,6 @@ __all__ = [
 
 class StableDiffusionDarkSushiMixV225DTextEncoder(CLIPViTLTextEncoder):
     """
-    SDXL Counterfeit v2.5 Primary Text Encoder model
+    DarkSushiMix V2 2.5D Text Encoder
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-dark-sushi-mix-v2-25d-text-encoder.fp16.safetensors"

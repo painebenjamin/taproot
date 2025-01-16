@@ -4,6 +4,6 @@ __all__ = ["StableDiffusionMistoonAnimeV3UNet"]
 
 class StableDiffusionMistoonAnimeV3UNet(StableDiffusionUNet):
     """
-    DreamShaper's UNet model, extracted.
+    Mistoon Anime V3 UNet model.
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-mistoon-anime-v3-unet.fp16.safetensors"

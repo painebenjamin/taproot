@@ -11,9 +11,15 @@ from taproot.pretrained import (
     CLIPViTLTextEncoder,
     CLIPViTLTokenizer,
 )
-from taproot.tasks.helpers import SpatialPromptInputType
+from taproot.tasks.helpers import (
+    LoRAInputType,
+    TextualInversionInputType,
+    SpatialPromptInputType
+)
 
 from ..base import DiffusersTextToImageTask
+from .lora import StableDiffusionHostedLoRA
+from .textual_inversion import StableDiffusionHostedTextualInversion
 from .pretrained import (
     StableDiffusionVAE,
     StableDiffusionUNet,
@@ -70,6 +76,8 @@ class StableDiffusionBase(DiffusersTextToImageTask):
     default_steps = DEFAULT_NUM_STEPS
     use_compel = True
     model_type = "sd"
+    pretrained_lora = StableDiffusionHostedLoRA.catalog() # type: ignore[assignment]
+    pretrained_textual_inversion = StableDiffusionHostedTextualInversion.catalog() # type: ignore[assignment]
 
     """Task-Specific Metadata"""
     use_safety_checker = False
@@ -206,6 +214,8 @@ class StableDiffusionBase(DiffusersTextToImageTask):
         clip_skip: Optional[int] = None,
         seed: SeedType = None,
         strength: Optional[float] = None,
+        lora: Optional[LoRAInputType] = None,
+        textual_inversion: Optional[TextualInversionInputType] = None,
         scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL] = None,
         output_format: IMAGE_OUTPUT_FORMAT_LITERAL = "png",
         output_upload: bool = False,
@@ -238,6 +248,9 @@ class StableDiffusionBase(DiffusersTextToImageTask):
                 image=image,
                 mask_image=mask_image,
                 strength=strength,
+                lora=lora,
+                textual_inversion=textual_inversion,
+                scheduler=scheduler,
                 prompt_embeds=prompt_embeds,
                 negative_prompt_embeds=negative_prompt_embeds,
                 #ip_adapter_image=ip_adapter_image,

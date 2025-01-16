@@ -4,6 +4,6 @@ __all__ = ["SDXLNightVisionV9UNet"]
 
 class SDXLNightVisionV9UNet(SDXLUNet):
     """
-    SDXL DreamShaper Alpha V2 UNet model
+    NightVision V9 UNet
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-xl-nightvision-v9-unet.fp16.safetensors"

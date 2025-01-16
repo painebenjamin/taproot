@@ -7,6 +7,7 @@ from .divine_elegance_mix import *
 from .dreamshaper import *
 from .epicrealism import *
 from .epic_photogasm import *
+from .filmgirl import *
 from .ghostmix import *
 from .lyriel import *
 from .majicmix_realistic import *

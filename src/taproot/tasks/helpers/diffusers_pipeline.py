@@ -24,11 +24,14 @@ from taproot.util import (
     get_seed,
     logger,
     maybe_use_tqdm,
+    inject_skip_init,
     wrap_module_forward_dtype,
     unwrap_module_forward_dtype,
     SpatioTemporalPrompt,
     EncodedPrompts,
     EncodedPrompt,
+    HostedLoRA,
+    HostedTextualInversion,
 )
 from taproot.constants import *
 from taproot.tasks.base import Task
@@ -43,8 +46,14 @@ __all__ = [
     "DiffusersPipelineTask",
     "SpatialPromptType",
     "SpatialPromptInputType",
+    "LoRAType",
+    "LoRAInputType",
+    "TextualInversionInputType",
 ]
 
+LoRAType = Union[str, Tuple[str, float]]
+LoRAInputType = Union[LoRAType, Sequence[LoRAType]]
+TextualInversionInputType = Union[str, Sequence[str]]
 SpatialPromptType = Union[str, Dict[str, Any], SpatioTemporalPrompt]
 SpatialPromptInputType = Union[SpatialPromptType, Sequence[SpatialPromptType]]
 
@@ -62,6 +71,11 @@ class DiffusersPipelineTask(Task):
     denoising_model_name: Optional[str] = None
     pag_applied_layers: Optional[List[str]] = None
     default_negative_prompt: Optional[str] = "lowres, blurry, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
+
+    pretrained_lora: Optional[Dict[str, Type[HostedLoRA]]] = None
+    loaded_lora: Optional[List[str]] = None
+    pretrained_textual_inversion: Optional[Dict[str, Type[HostedTextualInversion]]] = None
+    loaded_textual_inversion: Optional[List[str]] = None
 
     @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
@@ -121,10 +135,189 @@ class DiffusersPipelineTask(Task):
 
     """Shared Methods"""
 
+    def split_lora_name_and_scale(self, lora_name: str) -> Tuple[str, Optional[float]]:
+        """
+        Split the LoRA name and scale, when passed as a single string.
+        """
+        lora_name_parts = lora_name.split(":")
+        if len(lora_name_parts) == 2 and lora_name_parts[1].replace(".", "").replace("-", "").isdigit():
+            return lora_name_parts[0], float(lora_name_parts[1])
+        return lora_name, None
+
+    def enable_lora(
+        self,
+        pipeline: DiffusionPipeline,
+        *lora: LoRAType,
+    ) -> None:
+        """
+        Enable LoRA.
+        """
+        if not hasattr(pipeline, "set_adapters"):
+            return
+
+        names: List[str] = []
+        scales: List[float] = []
+
+        for lora_name_or_path_or_tuple in lora:
+            if isinstance(lora_name_or_path_or_tuple, tuple):
+                lora_name_or_path, lora_scale = lora_name_or_path_or_tuple
+            else:
+                lora_name_or_path, lora_scale = self.split_lora_name_and_scale( # type: ignore[assignment]
+                    lora_name_or_path_or_tuple
+                )
+
+            lora_name = self.load_lora_weights(lora_name_or_path, pipeline)
+            lora_scale = self.get_lora_scale(lora_name, scale=lora_scale)
+
+            names.append(lora_name)
+            scales.append(lora_scale)
+
+        if not names and not self.loaded_lora:
+            logger.debug("No LoRA ever enabled and no LoRA requested, not setting adapters.")
+            return
+        elif not names:
+            logger.info(f"Disabling LoRA for {type(self).__name__}.")
+        else:
+            logger.info(f"Enabling LoRA for {type(self).__name__}: {names} with scales {scales}.")
+
+        pipeline.set_adapters(names, scales)
+
+    def load_lora_weights(
+        self,
+        name_or_path: str,
+        pipeline: DiffusionPipeline,
+    ) -> str:
+        """
+        Load the LoRA weights into the pipeline.
+
+        :param name_or_path: The name or path of the LoRA model.
+        :param pipeline: The pipeline to load the LoRA model into.
+        :return: The name of the LoRA adapter.
+        """
+        if self.loaded_lora is None:
+            self.loaded_lora = []
+
+        lora_path = self.get_lora_path(name_or_path)
+        if name_or_path == lora_path:
+            lora_name, _ = os.path.splitext(os.path.basename(lora_path))
+        else:
+            lora_name = name_or_path
+
+        if not hasattr(pipeline, "load_lora_weights"):
+            return lora_name
+
+        if lora_path not in self.loaded_lora:
+            import torch
+            logger.info(f"Loading LoRA model {lora_name} from {lora_path} for {type(self).__name__}.")
+            with inject_skip_init(torch.nn.Linear):
+                pipeline.load_lora_weights(lora_path, adapter_name=lora_name)
+            self.loaded_lora.append(lora_path)
+
+        return lora_name
+
+    def get_lora_path(self, name_or_path: str) -> str:
+        """
+        Get the LoRA model.
+
+        :param name_or_path: The name of the LoRA model or the path to the LoRA model.
+        :return: The path to the LoRA model.
+        :raises ValueError: If no pretrained LoRA models are available.
+        :raises AssertionError: If the number of files found is not 1.
+        :raises KeyError: If the LoRA model is not found.
+        """
+        if os.path.exists(name_or_path):
+            return name_or_path
+
+        if self.pretrained_lora is not None:
+            cls = self.pretrained_lora[name_or_path] # will raise KeyError if not found
+            cls_files = cls.get_files(
+                self.model_dir,
+                text_callback=logger.info
+            )
+
+            assert len(cls_files) == 1, f"Expected 1 file for {name_or_path}, found {len(cls_files)}"
+            return cls_files[0]
+        raise ValueError(f"No pretrained LoRA models available for {type(self).__name__}")
+
+    def get_lora_scale(self, name_or_path: str, scale: Optional[float]=None) -> float:
+        """
+        Get the LoRA scale.
+
+        :param name_or_path: The name or path of the LoRA model.
+        :param scale: The scale to use, when explicitly provided.
+        :return: The scale to use.
+        """
+        if scale is not None:
+            return scale
+        if self.pretrained_lora is not None and name_or_path in self.pretrained_lora:
+            return self.pretrained_lora[name_or_path].recommended_scale
+        return 1.0
+
+    def get_textual_inversion_path(self, name: str) -> str:
+        """
+        Get the textual_inversion model.
+        """
+        if self.pretrained_textual_inversion is not None:
+            cls = self.pretrained_textual_inversion[name]
+            cls_files = cls.get_files(
+                self.model_dir,
+                text_callback=logger.info
+            )
+            assert len(cls_files) == 1, f"Expected 1 file for {name}, found {len(cls_files)}"
+            return cls_files[0]
+        raise ValueError(f"No pretrained textual inversion models available for {type(self).__name__}")
+
+    def load_textual_inversion_weights(
+        self,
+        name_or_path: str,
+        pipeline: DiffusionPipeline,
+    ) -> str:
+        """
+        Load the textual inversion weights into the pipeline.
+        """
+        if self.loaded_textual_inversion is None:
+            self.loaded_textual_inversion = []
+
+        textual_inversion_path = self.get_textual_inversion_path(name_or_path)
+        if name_or_path == textual_inversion_path:
+            textual_inversion_name, _ = os.path.splitext(os.path.basename(textual_inversion_path))
+        else:
+            textual_inversion_name = name_or_path
+
+        if not hasattr(pipeline, "load_textual_inversion"):
+            return textual_inversion_name
+
+        if textual_inversion_path not in self.loaded_textual_inversion:
+            import torch
+            logger.info(f"Loading textual inversion model {textual_inversion_name} from {textual_inversion_path} for {type(self).__name__}.")
+            pipeline.load_textual_inversion(textual_inversion_path)
+            self.loaded_textual_inversion.append(textual_inversion_path)
+
+        return textual_inversion_name
+
+    def enable_textual_inversion(
+        self,
+        pipeline: DiffusionPipeline,
+        *textual_inversion: str,
+    ) -> None:
+        """
+        Enable textual inversion.
+        """
+        names: List[str] = []
+
+        if hasattr(pipeline, "unload_textual_inversion"):
+            pipeline.unload_textual_inversion()
+            self.loaded_textual_inversion = []
+
+        if hasattr(pipeline, "load_textual_inversion"):
+            for textual_inversion_name_or_path in textual_inversion:
+                self.load_textual_inversion_weights(textual_inversion_name_or_path, pipeline)
+
     def get_pipeline(self, **kwargs: Any) -> DiffusionPipeline:
         """
         Get the pipeline.
         """
+        import torch
         pipeline_class = self.get_pipeline_class(**kwargs)
         pipeline_modules = self.get_pipeline_modules()
         pipeline_kwargs = self.get_pipeline_kwargs(**kwargs)
@@ -135,6 +328,28 @@ class DiffusersPipelineTask(Task):
         )
 
         pipeline = pipeline_class(**{**pipeline_modules, **pipeline_kwargs})
+
+        lora = kwargs.get("lora", None)
+        if lora is not None:
+            if not isinstance(lora, list):
+                loras = [lora]
+            else:
+                loras = lora
+        else:
+            loras = []
+
+        textual_inversion = kwargs.get("textual_inversion", None)
+        if textual_inversion is not None:
+            if not isinstance(textual_inversion, list):
+                textual_inversions = [textual_inversion]
+            else:
+                textual_inversions = textual_inversion
+        else:
+            textual_inversions = []
+
+        self.enable_lora(pipeline, *loras)
+        self.enable_textual_inversion(pipeline, *textual_inversions)
+
         vae = self.get_autoencoding_model()
         denoising_model = self.get_denoising_model()
 

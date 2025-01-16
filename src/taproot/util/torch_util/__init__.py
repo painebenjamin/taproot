@@ -10,6 +10,7 @@ from .init_util import *
 from .mask_util import *
 from .noise_util import *
 from .pack_util import *
+from .patch_util import *
 from .pretrained_util import *
 from .scale_util import *
 from .state_dict_util import *

@@ -214,10 +214,10 @@ class IFNet(nn.Module):
         img0 = x[:, :channel]
         img1 = x[:, channel:]
 
-        if not torch.is_tensor(timestep): # type: ignore[no-untyped-call]
+        if not torch.is_tensor(timestep): # type: ignore[no-untyped-call,unused-ignore]
             timestep = (x[:, :1].clone() * 0 + 1) * timestep
         else:
-            timestep = timestep.repeat(1, 1, img0.shape[2], img0.shape[3]) # type: ignore[union-attr]
+            timestep = timestep.repeat(1, 1, img0.shape[2], img0.shape[3]) # type: ignore[union-attr,unused-ignore]
 
         f0 = self.encode(img0[:, :3])
         f1 = self.encode(img1[:, :3])

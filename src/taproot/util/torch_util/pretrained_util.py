@@ -669,14 +669,14 @@ class PretrainedModelMixin:
             if param_name not in empty_state_dict:
                 continue
 
-            if not torch.is_tensor(param): # type: ignore[no-untyped-call]
+            if not torch.is_tensor(param): # type: ignore[no-untyped-call,unused-ignore]
                 continue
 
             set_module_kwargs = {}
             # We convert floating dtypes to the `dtype` passed. We also want to keep the buffers/params
             # in int/uint/bool and not cast them.
             # TODO: revisit cases when param.dtype == torch.float8_e4m3fn
-            if torch.is_floating_point(param): # type: ignore[arg-type]
+            if torch.is_floating_point(param): # type: ignore[arg-type,unused-ignore]
                 if (
                     keep_in_fp32_modules is not None
                     and any(
@@ -684,30 +684,30 @@ class PretrainedModelMixin:
                     )
                     and dtype == torch.float16
                 ):
-                    param = param.to(torch.float32) # type: ignore[union-attr]
+                    param = param.to(torch.float32) # type: ignore[union-attr,unused-ignore]
                     set_module_kwargs["dtype"] = torch.float32
                 else:
-                    param = param.to(dtype) # type: ignore[union-attr]
+                    param = param.to(dtype) # type: ignore[union-attr,unused-ignore]
                     set_module_kwargs["dtype"] = dtype
 
             # bnb params are flattened.
-            if empty_state_dict[param_name].shape != param.shape: # type: ignore[union-attr]
+            if empty_state_dict[param_name].shape != param.shape: # type: ignore[union-attr,unused-ignore]
                 if (
                     is_quantized
                     and is_quant_method_bnb
                     and getattr(quantizer, "pre_quantized", False)
                     and "check_quantized_param_shape" in dir(quantizer)
-                    and is_quantized_param(param) # type: ignore[arg-type]
+                    and is_quantized_param(param) # type: ignore[arg-type,unused-ignore]
                 ):
                     quantizer.check_quantized_param_shape(param_name, empty_state_dict[param_name], param) # type: ignore[union-attr]
                 elif not is_quant_method_bnb:
                     raise ValueError(
-                        f"Cannot load because {param_name} expected shape {empty_state_dict[param_name]}, but got {param.shape}. If you want to instead overwrite randomly initialized weights, please make sure to pass both `low_cpu_mem_usage=False` and `ignore_mismatched_sizes=True`. For more information, see also: https://github.com/huggingface/diffusers/issues/1619#issuecomment-1345604389 as an example." # type: ignore[union-attr]
+                        f"Cannot load because {param_name} expected shape {empty_state_dict[param_name]}, but got {param.shape}. If you want to instead overwrite randomly initialized weights, please make sure to pass both `low_cpu_mem_usage=False` and `ignore_mismatched_sizes=True`. For more information, see also: https://github.com/huggingface/diffusers/issues/1619#issuecomment-1345604389 as an example." # type: ignore[union-attr,unused-ignore]
                     )
 
             if (
                 is_quantized
-                and is_quantized_param(param) # type: ignore[arg-type]
+                and is_quantized_param(param) # type: ignore[arg-type,unused-ignore]
             ):
                 quantizer.create_quantized_param(model, param, param_name, device, state_dict, unexpected_keys) # type: ignore[union-attr]
             else:

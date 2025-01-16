@@ -20,6 +20,8 @@ from taproot.constants import *
 from taproot.tasks.helpers import (
     DiffusersPipelineTask,
     SpatialPromptInputType,
+    TextualInversionInputType,
+    LoRAInputType,
 )
 
 if TYPE_CHECKING:
@@ -234,6 +236,8 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         highres_fix_strength: Optional[float]=None,
         clip_skip: Optional[int]=None,
         spatial_prompts: Optional[SpatialPromptInputType]=None,
+        lora: Optional[LoRAInputType]=None,
+        textual_inversion: Optional[TextualInversionInputType]=None,
         **kwargs: Any,
     ) -> torch.Tensor:
         """
@@ -276,7 +280,9 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         )
 
         pipeline = self.get_pipeline(
+            lora=lora,
             scheduler=scheduler,
+            textual_inversion=textual_inversion,
             is_image_to_image=is_image_to_image,
             is_controlnet=is_controlnet,
             is_inpaint=is_inpaint,
@@ -398,6 +404,8 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                     kwargs["output_format"] = "pt"
 
                 pipeline = self.get_pipeline(
+                    lora=lora,
+                    textual_inversion=textual_inversion,
                     scheduler=scheduler,
                     is_image_to_image=True,
                     is_controlnet=False,

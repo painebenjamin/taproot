@@ -6,6 +6,6 @@ __all__ = [
 
 class StableDiffusionLyrielV16TextEncoder(CLIPViTLTextEncoder):
     """
-    SDXL Counterfeit v2.5 Primary Text Encoder model
+    Lyriel V1.6 Text Encoder
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lyriel-v1-6-text-encoder.fp16.safetensors"

@@ -6,6 +6,6 @@ __all__ = [
 
 class StableDiffusionEpicPhotogasmUltimateFidelityTextEncoder(CLIPViTLTextEncoder):
     """
-    SDXL Counterfeit v2.5 Primary Text Encoder model
+    Epic Photogasm Ultimate Fidelity Text Encoder
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-epic-photogasm-ultimate-fidelity-text-encoder.fp16.safetensors"

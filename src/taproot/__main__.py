@@ -933,7 +933,13 @@ def invoke(
                     value = sys.argv[i + 1]
                     skip = True
 
-            args[flag] = value
+            if flag in args:
+                if isinstance(args[flag], list):
+                    args[flag].append(value)
+                else:
+                    args[flag] = [args[flag], value]
+            else:
+                args[flag] = value
 
     with get_command_context(log_level, add_import, quiet):
         from .tasks import Task

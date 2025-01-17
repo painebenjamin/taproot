@@ -17,7 +17,7 @@ from typing import (
     Union,
     cast,
 )
-from typing_extensions import Literal, Self
+from typing_extensions import Self
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from time import perf_counter
@@ -260,7 +260,7 @@ class Dispatcher(ConfigServer):
         self.config.executor_config.queue_config.task_config.save_format = value
 
     @property
-    def executor_protocol(self) -> Literal["memory", "tcp", "ws", "unix"]:
+    def executor_protocol(self) -> PROTOCOL_LITERAL:
         """
         Executor protocol for the dispatcher.
         """
@@ -270,7 +270,7 @@ class Dispatcher(ConfigServer):
         return DEFAULT_PROTOCOL # type: ignore[return-value]
 
     @executor_protocol.setter
-    def executor_protocol(self, value: str) -> None:
+    def executor_protocol(self, value: PROTOCOL_LITERAL) -> None:
         """
         Set the executor protocol for the dispatcher.
         """
@@ -501,7 +501,7 @@ class Dispatcher(ConfigServer):
 
         if protocol == "memory":
             config_dict["port"] = find_free_memory_port()
-        elif protocol in ["tcp", "ws"]:
+        elif protocol in ["tcp", "ws", "http"]:
             if self.config.executor_config.host:
                 config_dict["host"] = self.config.executor_config.host
             elif self.protocol != "unix":

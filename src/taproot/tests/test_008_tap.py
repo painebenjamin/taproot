@@ -18,11 +18,11 @@ def test_tap() -> None:
     """
     Test the tap on it's own, in all deployment configurations.
     """
+    keyfile, certfile = generate_temp_key_and_cert()
     async def execute_test() -> None:
         with get_test_restricted_import_context(): # Ensure some modules are never initialized
             with debug_logger() as logger:
                 # Create the overseer and dispatcher
-                keyfile, certfile = generate_temp_key_and_cert()
                 base_encryption_config = {
                     "encryption_key": "test" * 8,
                     "keyfile": keyfile,
@@ -49,7 +49,7 @@ def test_tap() -> None:
                     # Find a free host/port
                     if dispatcher.protocol == "memory":
                         dispatcher.port = find_free_memory_port()
-                    elif dispatcher.protocol in ["tcp", "ws"]:
+                    elif dispatcher.protocol in ["tcp", "ws", "http"]:
                         dispatcher.host = DEFAULT_HOST
                         dispatcher.port = find_free_port()
                     else:
@@ -86,7 +86,7 @@ def test_tap() -> None:
                             # Test all protocols
                             for protocol in get_test_server_protocols(no_memory=True):
                                 dispatcher.config.executor_config.protocol = protocol
-                                logger.info(f"Testing overseer={overseer_address}, dispatcher={dispatcher_address}, protocol={protocol}")
+                                logger.critical(f"Testing overseer={overseer_address}, dispatcher={dispatcher_address}, protocol={protocol}")
                                 await run_dispatcher_test()
 
                             # Now ensure this works when the executor is encrypted,

@@ -84,9 +84,11 @@ class AsyncRunner:
         self,
         *callables: Callable[..., Awaitable[Any]],
         sequential: bool = False,
+        delay: Optional[float] = None
     ) -> None:
         self.callables = list(callables)
         self.sequential = sequential
+        self.delay = delay
 
     async def main(self) -> None:
         """
@@ -95,6 +97,8 @@ class AsyncRunner:
         if self.sequential:
             for method in self.callables:
                 await method()
+                if self.delay is not None:
+                    await asyncio.sleep(self.delay)
         else:
             await asyncio.gather(*[
                 method()
@@ -243,22 +247,29 @@ class ServerRunner:
                 await execute_and_await(callback)
 
             # Shutdown all the remaining servers in parallel
-            await asyncio.gather(*[
+            exit_results = await asyncio.gather(*[
                 server.exit()
                 for task, server in zip(tasks, self.servers)
                 if not task.done()
-            ])
+            ], return_exceptions=True)
+
+            # Log any exceptions
+            max_wait_time = 10.0
+            for result, server in zip(exit_results, self.servers):
+                if isinstance(result, Exception):
+                    logger.info(f"Error stopping server {type(server).__name__}: {result}")
+                    max_wait_time = 0.0 # Don't wait if there was an error, just cancel
 
             # Wait up to 10 seconds for all tasks to finish
             total_time = 0.0
-            while any(not task.done() for task in tasks) and total_time < 10:
+            while any(not task.done() for task in tasks) and total_time < max_wait_time:
                 await asyncio.sleep(0.2)
                 total_time += 0.2
 
             # Ensure all tasks are done
             for task, server in zip(tasks, self.servers):
                 if not task.done():
-                    logger.warning(f"Server {type(server).__name__} listening on {server.address} did not exit cleanly, cancelling task.")
+                    logger.info(f"Server {type(server).__name__} listening on {server.address} did not exit cleanly, cancelling task.")
                     task.cancel()
 
             # Await all tasks
@@ -318,7 +329,10 @@ class ServerSubprocessRunner:
             return
 
         for server in self.servers:
-            await server.exit()
+            try:
+                await server.exit()
+            except Exception as e:
+                logger.warning(f"Error stopping server {type(server).__name__}: {e}")
 
         sleep_time = 0.0
         while self.process.is_alive() and sleep_time < self.max_sleep_time:

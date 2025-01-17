@@ -22,7 +22,7 @@ class StableDiffusionEpicPhotogasmUltimateFidelity(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/epinikion"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/429454"
     license_attribution = True
     license_copy_left = False

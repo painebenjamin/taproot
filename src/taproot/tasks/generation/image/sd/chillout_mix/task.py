@@ -22,7 +22,7 @@ class StableDiffusionChilloutMixNi(StableDiffusionBase):
     finetune_author_url = "https://dreamlike.art"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://huggingface.co/dreamlike-art/dreamlike-diffusion-1.0/blob/main/LICENSE.md"
     license_attribution = True
     license_copy_left = True

@@ -28,7 +28,7 @@ class StableDiffusionRealisticVisionV51(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/SG_161222"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/130072"
     license_attribution = True
     license_copy_left = True
@@ -54,7 +54,7 @@ class StableDiffusionRealisticVisionV60(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/SG_161222"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/245592"
     license_attribution = True
     license_copy_left = True

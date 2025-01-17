@@ -29,7 +29,7 @@ class StableDiffusionXLJuggernautV11(StableDiffusionXLBase):
     finetune_author_url = "https://civitai.com/user/KandooAI"
 
     """Licensing Metadata"""
-    license = "OpenRAIL++-M License with Restrictions"
+    license = "OpenRAIL++-M License with Addendum"
     license_url = "https://civitai.com/models/license/782002"
     license_attribution = True
     license_commercial = True

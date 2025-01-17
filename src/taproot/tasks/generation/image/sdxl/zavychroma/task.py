@@ -29,7 +29,7 @@ class StableDiffusionXLZavyChromaV10(StableDiffusionXLBase):
     finetune_author_url = "https://civitai.com/user/Zavy"
 
     """Licensing Metadata"""
-    license = "OpenRAIL++-M License with Restrictions"
+    license = "OpenRAIL++-M License with Addendum"
     license_url = "https://civitai.com/models/license/916744"
     license_attribution = False
     license_commercial = True

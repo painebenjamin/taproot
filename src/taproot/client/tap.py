@@ -15,7 +15,6 @@ from typing import (
     Union,
     TYPE_CHECKING
 )
-from typing_extensions import Literal
 from contextlib import asynccontextmanager, AsyncExitStack
 
 from ..constants import *
@@ -157,6 +156,8 @@ class Tap(ConfigMixin):
             return "tcps"
         elif self.local_protocol == "ws" and self.local_use_encryption:
             return "wss"
+        elif self.local_protocol == "http" and self.local_use_encryption:
+            return "https"
         return self.local_protocol
 
     @local_scheme.setter
@@ -171,6 +172,9 @@ class Tap(ConfigMixin):
             self.local_use_encryption = True
         elif value == "wss":
             self.local_protocol = "ws"
+            self.local_use_encryption = True
+        elif value == "https":
+            self.local_protocol = "http"
             self.local_use_encryption = True
         else:
             self.local_protocol = value
@@ -371,14 +375,14 @@ class Tap(ConfigMixin):
         self.config.remote.path = value
 
     @property
-    def remote_protocol(self) -> Optional[Literal["memory", "tcp", "unix", "ws"]]:
+    def remote_protocol(self) -> Optional[PROTOCOL_LITERAL]:
         """
         Returns the remote dispatcher protocol.
         """
         return self.config.remote.protocol if self.config.remote else None
 
     @remote_protocol.setter
-    def remote_protocol(self, value: Literal["memory", "tcp", "unix", "ws"]) -> None:
+    def remote_protocol(self, value: PROTOCOL_LITERAL) -> None:
         """
         Sets the remote dispatcher protocol.
         """
@@ -387,7 +391,7 @@ class Tap(ConfigMixin):
         self.config.remote.protocol = value
 
     @property
-    def remote_scheme(self) -> Optional[Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]]:
+    def remote_scheme(self) -> Optional[SCHEME_LITERAL]:
         """
         Returns the remote dispatcher scheme.
         """
@@ -395,12 +399,14 @@ class Tap(ConfigMixin):
             return None
         if self.remote_protocol == "tcp" and self.remote_use_encryption:
             return "tcps"
-        if self.remote_protocol == "ws" and self.remote_use_encryption:
+        elif self.remote_protocol == "ws" and self.remote_use_encryption:
             return "wss"
+        elif self.remote_protocol == "http" and self.remote_use_encryption:
+            return "https"
         return self.remote_protocol
 
     @remote_scheme.setter
-    def remote_scheme(self, value: Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]) -> None:
+    def remote_scheme(self, value: SCHEME_LITERAL) -> None:
         """
         Sets the remote dispatcher scheme.
         """
@@ -411,6 +417,9 @@ class Tap(ConfigMixin):
             self.remote_use_encryption = True
         elif value == "wss":
             self.remote_protocol = "ws"
+            self.remote_use_encryption = True
+        elif value == "https":
+            self.remote_protocol = "http"
             self.remote_use_encryption = True
         else:
             self.remote_protocol = value
@@ -591,6 +600,12 @@ class Tap(ConfigMixin):
         if self.use_local:
             dispatcher = self._get_local_dispatcher()
             await self.exit_stack.enter_async_context(dispatcher)
+            if self.use_local and self.config.local:
+                self._local_client = self._get_local_client()
+                await self.exit_stack.enter_async_context(self._local_client)
+            if self.use_remote and self.config.remote:
+                self._remote_client = self._get_remote_client()
+                await self.exit_stack.enter_async_context(self._remote_client)
         return self
 
     async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
@@ -598,6 +613,10 @@ class Tap(ConfigMixin):
         Exits the context.
         """
         await self.exit_stack.aclose()
+        if hasattr(self, "_local_client"):
+            del self._local_client
+        if hasattr(self, "_remote_client"):
+            del self._remote_client
 
     """Private methods"""
 
@@ -641,6 +660,9 @@ class Tap(ConfigMixin):
         """
         if not self.use_remote or not self.config.remote:
             raise ValueError("Remote dispatcher is not enabled.")
+        if hasattr(self, "_remote_client"):
+            return self._remote_client
+
         client = Client()
         client.scheme = self.remote_scheme # type: ignore[assignment]
         client.path = self.remote_path
@@ -662,6 +684,8 @@ class Tap(ConfigMixin):
         """
         if not self.use_local or not self.config.local:
             raise ValueError("Local dispatcher is not enabled.")
+        if hasattr(self, "_local_client"):
+            return self._local_client
         client = Client()
         client.protocol = self.config.local.protocol
         client.host = self.config.local.host
@@ -925,7 +949,7 @@ class Tap(ConfigMixin):
     async def local(
         cls,
         remote: Optional[ClientConfig]=None,
-        protocol: Literal["memory", "tcp", "unix", "ws"]="memory",
+        protocol: PROTOCOL_LITERAL="memory",
         host: Optional[str]=None,
         port: Optional[int]=None,
         path: Optional[str]=None,

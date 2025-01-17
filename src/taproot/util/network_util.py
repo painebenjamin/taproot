@@ -18,6 +18,8 @@ from contextlib import closing
 from typing import Optional, Tuple, Any, Sequence, Dict, Union, TYPE_CHECKING
 from typing_extensions import Literal, TypedDict, NotRequired
 
+from ..constants import *
+
 if TYPE_CHECKING:
     import torch
     import numpy as np
@@ -403,7 +405,7 @@ def find_free_port() -> int:
 ADDRESS_REGEX = re.compile(r"^(\w+)\:\/\/([\w\-._~!#$%^&*\(\)\ ;=]*)(\:(\d+))?(\/.*)?$")
 
 class AddressDict(TypedDict):
-    scheme: Literal["memory", "unix", "tcp", "tcps", "ws", "wss"]
+    scheme: SCHEME_LITERAL
     host: Optional[str]
     port: Optional[int]
     path: Optional[str]
@@ -439,7 +441,7 @@ def parse_address(address: str) -> AddressDict:
     except IndexError:
         pass
 
-    if scheme not in ["memory", "unix", "tcp", "tcps", "ws", "wss"]:
+    if scheme not in ["memory", "unix", "tcp", "tcps", "ws", "wss", "http", "https"]:
         raise ValueError(f"Invalid scheme: {scheme}")
 
     if scheme == "memory":
@@ -466,7 +468,7 @@ def parse_address(address: str) -> AddressDict:
             warnings.warn("Ignoring port for unix scheme")
         host = None
         port = None
-    elif scheme in ["tcp", "tcps", "ws", "wss"]:
+    elif scheme in ["tcp", "tcps", "ws", "wss", "http", "https"]:
         if port_str:
             port = int(port_str)
         else:

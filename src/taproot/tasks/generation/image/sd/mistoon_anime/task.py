@@ -22,7 +22,7 @@ class StableDiffusionMistoonAnimeV3(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/Inzaniak"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/348981"
     license_attribution = False
     license_copy_left = False

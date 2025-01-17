@@ -5,8 +5,8 @@ from .clarity import *
 from .dark_sushi_mix import *
 from .divine_elegance_mix import *
 from .dreamshaper import *
-from .epicrealism import *
 from .epic_photogasm import *
+from .epicrealism import *
 from .filmgirl import *
 from .ghostmix import *
 from .lyriel import *
@@ -18,4 +18,5 @@ from .photon import *
 from .realcartoon3d import *
 from .realistic_vision import *
 from .rev_animated import *
+from .serenity import *
 from .toonyou import *

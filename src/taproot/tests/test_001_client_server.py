@@ -2,10 +2,12 @@ import asyncio
 from taproot import Server, Client
 from taproot.util import (
     debug_logger,
+    generate_temp_key_and_cert,
     get_test_server_addresses,
     log_duration,
     human_duration,
     time_counter,
+    find_free_port,
     AsyncRunner,
 )
 
@@ -35,6 +37,12 @@ def test_server_client() -> None:
         server = Server()
         client = Client()
 
+        keyfile, certfile = generate_temp_key_and_cert()
+        server.keyfile = keyfile
+        server.certfile = certfile
+        client.certfile = server.certfile
+        client.encryption_key = server.encryption_key
+
         # Request to send in all tests
         request = "Hello, world!"
 
@@ -44,11 +52,12 @@ def test_server_client() -> None:
             Execute the test.
             """
             # Start server
+            if server.protocol == "http":
+                server.port = find_free_port()
+            logger.info(f"Beginning test for server address {server.address}")
             async with server:
                 # Send request
                 client.address = server.address
-                client.encryption_key = server.encryption_key
-                client.certfile = server.certfile
 
                 for payload in payloads:
                     with time_counter() as duration:
@@ -71,6 +80,11 @@ def test_server_client() -> None:
             """
             Execute the timeout test.
             """
+            # Start server
+            if server.protocol == "http":
+                server.port = find_free_port()
+                client.port = server.port
+            logger.info(f"Beginning timeout test for server address {server.address}")
             server.max_idle_time = 0.2
             async with server:
                 await asyncio.sleep(0.01)
@@ -78,7 +92,7 @@ def test_server_client() -> None:
                     assert await client(request) == request
                 await asyncio.sleep(0.3)
                 try:
-                    await client(request, retries=0) == request
+                    await client(request, retries=0)
                     assert False, "Server should have timed out"
                 except ConnectionError:
                     assert True
@@ -87,6 +101,11 @@ def test_server_client() -> None:
             """
             Executes a shutdown test.
             """
+            # Start server
+            if server.protocol == "http":
+                server.port = find_free_port()
+                client.port = server.port
+            logger.info(f"Beginning shutdown test for server address {server.address}")
             server.use_control_encryption = True
             try:
                 async with server:
@@ -94,9 +113,11 @@ def test_server_client() -> None:
                     await server.assert_connectivity()
                     with log_duration(f"{server.address}"):
                         try:
-                            no_encryption = await client("control:shutdown")
+                            logger.info("Issuing shutdown server, an exception should be raised.")
+                            no_encryption = await client("control:shutdown", retries=0)
                             assert False, "Server should have rejected shutdown command."
                         except Exception as e:
+                            logger.info(f"Succesfully rejected shutdown command: {e}")
                             with_encryption = await client(server.pack_control_message("shutdown"))
                             assert True
             finally:

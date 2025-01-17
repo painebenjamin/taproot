@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from typing import Union, Optional
-from typing_extensions import Literal
 
+from ..constants import *
 from ..config import *
 from .base import Client
 
@@ -25,7 +25,7 @@ class ConfigClient(Client, ConfigMixin):
         return self.config.encryption is not None
 
     @property
-    def protocol(self) -> Literal["tcp", "unix", "memory", "ws"]:
+    def protocol(self) -> PROTOCOL_LITERAL:
         """
         Return configured protocol if set, otherwise use default.
         """
@@ -34,7 +34,7 @@ class ConfigClient(Client, ConfigMixin):
         return str(self.config.protocol) # type: ignore
 
     @protocol.setter
-    def protocol(self, value: Literal["tcp", "unix", "memory", "ws"]) -> None:
+    def protocol(self, value: PROTOCOL_LITERAL) -> None:
         """
         Set the protocol to use.
         """

@@ -29,7 +29,7 @@ class StableDiffusionXLCounterfeitV25(StableDiffusionXLBase):
     finetune_author_url = "https://civitai.com/user/rqdwdw"
 
     """Licensing Metadata"""
-    license = "OpenRAIL++-M License with Restrictions"
+    license = "OpenRAIL++-M License with Addendum"
     license_url = "https://civitai.com/models/license/265012"
     license_attribution = False
     license_commercial = True

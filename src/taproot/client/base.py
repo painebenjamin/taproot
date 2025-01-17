@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-import asyncio
-import logging
 import ssl
 import struct
+import asyncio
+import logging
 import traceback
 
-from typing import Optional, Any, Tuple, Union, Dict
-from typing_extensions import Literal
+from typing import (
+    Any,
+    AsyncIterator,
+    Dict,
+    Optional,
+    Tuple,
+    Union,
+    TYPE_CHECKING
+)
 
 from time import perf_counter
-from websockets.asyncio.client import connect
+from contextlib import asynccontextmanager, AsyncExitStack
 
 from ..util import (
     logger,
@@ -27,6 +34,10 @@ from ..util import (
 from ..constants import *
 from ..encryption import Encryption
 
+if TYPE_CHECKING:
+    from aiohttp import ClientSession
+    from websockets.asyncio.client import ClientConnection
+
 __all__ = ["Client"]
 
 class Client(Encryption):
@@ -34,11 +45,12 @@ class Client(Encryption):
     As base client class for unix or TCP communication.
     """
     _ssl_context: Optional[Union[bool, ssl.SSLContext]]
+    _exit_stack: AsyncExitStack
 
     """Default properties"""
 
     @property
-    def default_protocol(self) -> Literal["memory", "tcp", "unix", "ws"]:
+    def default_protocol(self) -> PROTOCOL_LITERAL:
         """
         Default protocol class for the server.
         """
@@ -56,9 +68,9 @@ class Client(Encryption):
         """
         Default port for TCP connections or memory-based servers.
         """
-        if self.scheme == "ws":
+        if self.scheme in ["ws", "http"]:
             return 80
-        elif self.scheme == "wss":
+        elif self.scheme in ["wss", "https"]:
             return 443
         return DEFAULT_PORT
 
@@ -135,7 +147,7 @@ class Client(Encryption):
     """Getter/setter properties"""
 
     @property
-    def protocol(self) -> Literal["memory", "tcp", "unix", "ws"]:
+    def protocol(self) -> PROTOCOL_LITERAL:
         """
         Protocol class for the server.
         """
@@ -144,14 +156,14 @@ class Client(Encryption):
         return self._protocol
 
     @protocol.setter
-    def protocol(self, value: Literal["memory", "tcp", "unix", "ws"]) -> None:
+    def protocol(self, value: PROTOCOL_LITERAL) -> None:
         """
         Set the protocol class for the server.
         """
         self._protocol = value
 
     @property
-    def scheme(self) -> Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]:
+    def scheme(self) -> SCHEME_LITERAL:
         """
         Scheme for the server.
         """
@@ -159,10 +171,12 @@ class Client(Encryption):
             return "tcps"
         elif self.protocol == "ws" and self.use_encryption:
             return "wss"
+        elif self.protocol == "http" and self.use_encryption:
+            return "https"
         return self.protocol
 
     @scheme.setter
-    def scheme(self, value: Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]) -> None:
+    def scheme(self, value: SCHEME_LITERAL) -> None:
         """
         Set the scheme for the server.
         """
@@ -171,6 +185,9 @@ class Client(Encryption):
             self.use_encryption = True
         elif value == "wss":
             self.protocol = "ws"
+            self.use_encryption = True
+        elif value == "https":
+            self.protocol = "http"
             self.use_encryption = True
         else:
             self.protocol = value
@@ -437,6 +454,24 @@ class Client(Encryption):
     """Getters only"""
 
     @property
+    def session_lock(self) -> asyncio.Lock:
+        """
+        Lock for the session.
+        """
+        if not hasattr(self, "_session_lock"):
+            self._session_lock = asyncio.Lock()
+        return self._session_lock
+
+    @property
+    def exit_stack(self) -> AsyncExitStack:
+        """
+        Exit stack for the client.
+        """
+        if not hasattr(self, "_exit_stack"):
+            self._exit_stack = AsyncExitStack()
+        return self._exit_stack
+
+    @property
     def ssl_context(self) -> Optional[Union[bool, ssl.SSLContext]]:
         """
         SSL context for the client.
@@ -476,9 +511,9 @@ class Client(Encryption):
         return self._control_encryption
 
     @property
-    def websocket_headers(self) -> Dict[str, str]:
+    def http_headers(self) -> Dict[str, str]:
         """
-        Additional headers for websocket connections.
+        Additional headers for http connections.
         """
         headers: Dict[str, str] = {}
         # Check if the target host is a huggingface domain
@@ -489,6 +524,57 @@ class Client(Encryption):
             if token is not None:
                 headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    """Private methods"""
+
+    def _is_context_manager(self) -> bool:
+        """
+        Whether or not the client is being used as a context manager.
+        """
+        return getattr(self, "_context_manager", False)
+
+    def _create_http_session(self) -> ClientSession:
+        """
+        Get an aiohttp session.
+        """
+        import aiohttp
+        return aiohttp.ClientSession()
+
+    def _create_websocket(self) -> ClientConnection:
+        """
+        Get a websocket connection.
+        """
+        from websockets import connect
+        return connect( # type: ignore[return-value]
+            self.address,
+            ssl=self.ssl_context,
+            max_size=WEBSOCKET_CHUNK_SIZE,
+            additional_headers=self.http_headers
+        )
+
+    @asynccontextmanager
+    async def _get_http_session(self) -> AsyncIterator[ClientSession]:
+        """
+        Get an aiohttp session.
+        """
+        if self._is_context_manager():
+            assert hasattr(self, "_http_session"), "No HTTP session created."
+            yield self._http_session
+        else:
+            async with self._create_http_session() as session:
+                yield session
+
+    @asynccontextmanager
+    async def _get_websocket(self) -> AsyncIterator[ClientConnection]:
+        """
+        Get a websocket connection
+        """
+        if self._is_context_manager():
+            assert hasattr(self, "_websocket"), "No websocket created."
+            yield self._websocket
+        else:
+            async with self._create_websocket() as websocket:
+                yield websocket # type: ignore[misc]
 
     """Public methods"""
 
@@ -525,6 +611,29 @@ class Client(Encryption):
             **kwargs
         )
 
+    """Magic methods"""
+
+    async def __aenter__(self) -> Client:
+        """
+        Enter the client context. Some client protocols will use this
+        to initiate a session, others will ignore.
+        """
+        self._context_manager = True
+        if self.protocol == "http":
+            self._http_session = self._create_http_session()
+            await self.exit_stack.enter_async_context(self._http_session)
+        elif self.protocol == "ws":
+            self._websocket = await self._create_websocket() # type: ignore[misc]
+            await self.exit_stack.enter_async_context(self._websocket)
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        """
+        Exit the client context.
+        """
+        await self.exit_stack.aclose()
+        self._context_manager = False
+
     async def __call__(
         self,
         request: Any=None,
@@ -541,6 +650,7 @@ class Client(Encryption):
         Execute a request to the server.
         """
         execute_start = perf_counter()
+        result: Any = None
         try:
             if self.protocol == "memory":
                 address_label = f"memory[{self.port}]"
@@ -551,17 +661,36 @@ class Client(Encryption):
                 except ValueError as e:
                     raise ConnectionError(f"Could not connect to in-memory server on port {self.port}. {e}")
                 return await server.process(request)
+            elif self.protocol == "http":
+                import aiohttp
+                async with self._get_http_session() as session:
+                    address_label = self.address
+                    encoded = pack_and_encode(request)
+                    logger.debug(f"Sending message to {self.address} (timeout: {timeout}).")
+                    try:
+                        async with session.post(
+                            self.address,
+                            data=encoded,
+                            timeout=timeout,
+                            ssl=self.ssl_context,
+                            headers={"Content-Type": "application/octet-stream"}
+                        ) as http_response:
+                            if http_response.status != 200:
+                                raise ConnectionError(f"Error querying {address_label}: {http_response.status}")
+
+                            result = await http_response.read()
+                            if result is None or result == bytes():
+                                return None
+
+                            result = decode_and_unpack(result)
+                            if isinstance(result, Exception):
+                                raise result
+                            return result
+                    except aiohttp.ClientError as e:
+                        raise ConnectionError(f"Error querying {address_label}") from e
             elif self.protocol == "ws":
                 address_label = self.address
-                async with connect(
-                    self.address,
-                    ssl=self.ssl_context,
-                    open_timeout=timeout,
-                    close_timeout=timeout,
-                    ping_timeout=timeout,
-                    max_size=WEBSOCKET_CHUNK_SIZE,
-                    additional_headers=self.websocket_headers
-                ) as websocket:
+                async with self._get_websocket() as websocket:
                     encoded = pack_and_encode(request)
                     encoded_len = struct.pack('!I', len(encoded))
                     encoded = encoded_len + encoded

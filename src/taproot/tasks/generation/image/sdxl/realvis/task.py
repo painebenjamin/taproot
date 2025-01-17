@@ -29,7 +29,7 @@ class StableDiffusionXLRealVisV50(StableDiffusionXLBase):
     finetune_author_url = "https://civitai.com/user/SG_161222"
 
     """Licensing Metadata"""
-    license = "OpenRAIL++-M License with Restrictions"
+    license = "OpenRAIL++-M License with Addendum"
     license_url = "https://civitai.com/models/license/789646"
     license_attribution = True
     license_commercial = True

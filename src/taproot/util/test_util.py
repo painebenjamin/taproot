@@ -159,7 +159,7 @@ def get_test_server_protocols(no_memory: bool=False) -> List[str]:
     protocols = []
     if not no_memory:
         protocols.append("memory")
-    protocols.extend(["tcp", "ws"])
+    protocols.extend(["tcp", "ws", "http"])
     if sys.platform != "win32":
         protocols.append("unix")
     protocols.reverse()
@@ -183,7 +183,9 @@ def get_test_server_addresses(no_memory: bool=False) -> List[str]:
         f"tcp://127.0.0.1:{find_free_port()}",
         f"tcps://127.0.0.1:{find_free_port()}",
         f"ws://127.0.0.1:{find_free_port()}",
-        f"wss://127.0.0.1:{find_free_port()}"
+        f"wss://127.0.0.1:{find_free_port()}",
+        f"http://127.0.0.1:{find_free_port()}",
+        f"https://127.0.0.1:{find_free_port()}"
     ])
     if sys.platform != "win32":
         configurations.append(f"unix://{find_free_unix_socket()}")
@@ -1024,14 +1026,15 @@ async def execute_echo_test(
     ]
 
     # Send data in striped packages (e.g. 1 byte, 1KB, 1MB, 1 byte, 1KB, 1MB, ...)
-    test_times: List[List[float]] = []
-    for i in maybe_use_tqdm(range(num_packets_per_size), use_tqdm=use_tqdm, desc="Iteration"):
-        test_times.append([])
-        for j, packet_list in enumerate(test_packets):
-            with time_counter() as timer:
-                result = await client(packet_list[i])
-            assert result == packet_list[i], "Echo test failed!"
-            test_times[-1].append(float(timer))
+    async with client:
+        test_times: List[List[float]] = []
+        for i in maybe_use_tqdm(range(num_packets_per_size), use_tqdm=use_tqdm, desc="Iteration"):
+            test_times.append([])
+            for j, packet_list in enumerate(test_packets):
+                with time_counter() as timer:
+                    result = await client(packet_list[i])
+                assert result == packet_list[i], "Echo test failed!"
+                test_times[-1].append(float(timer))
 
     # Transpose
     test_times = list(zip(*test_times)) # type: ignore[arg-type]

@@ -29,7 +29,7 @@ class StableDiffusionXLCopaxTimeLessV13(StableDiffusionXLBase):
     finetune_author_url = "https://civitai.com/user/copax"
 
     """Licensing Metadata"""
-    license = "OpenRAIL++-M License with Restrictions"
+    license = "OpenRAIL++-M License with Addendum"
     license_url = "https://civitai.com/models/license/724334"
     license_attribution = True
     license_commercial = True

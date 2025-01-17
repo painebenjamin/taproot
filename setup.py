@@ -10,7 +10,6 @@ deps = [
     "click",
     "dbgpu[fuzz]",
     "docstring_parser",
-    "httptools",
     "msgpack",
     "omegaconf",
     "packaging",
@@ -18,7 +17,17 @@ deps = [
     "psutil",
     "pycryptodome",
     "requests",
+]
+
+websocket_deps = [
     "websockets",
+]
+
+http_deps = [
+    "uvicorn",
+    "aiohttp",
+    "aiodns",
+    "starlette",
 ]
 
 av_deps = [
@@ -59,8 +68,10 @@ setup(
     extras_require={
         "av": av_deps,
         "uv": uv_deps,
-        "tools": tool_deps,
+        "ws": websocket_deps,
         "cli": cli_deps,
+        "http": http_deps,
+        "tools": tool_deps,
     },
     entry_points={
         "console_scripts": [

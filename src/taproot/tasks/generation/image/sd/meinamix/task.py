@@ -22,7 +22,7 @@ class StableDiffusionMeinaMixV12(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/Meina"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/948574"
     license_attribution = True
     license_copy_left = False

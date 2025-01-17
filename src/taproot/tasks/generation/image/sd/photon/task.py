@@ -22,7 +22,7 @@ class StableDiffusionPhotonV1(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/Photographer"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/900072"
     license_attribution = True
     license_copy_left = False

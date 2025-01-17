@@ -5,10 +5,10 @@ import ssl
 import time
 import struct
 import asyncio
+import logging
 import threading
 import traceback
 import ipaddress
-import websockets
 
 from typing import (
     Any,
@@ -20,11 +20,10 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from typing_extensions import Literal, Self
+from typing_extensions import Self
 from async_lru import alru_cache
 from contextlib import asynccontextmanager, nullcontext, AsyncExitStack
-from websockets.exceptions import ConnectionClosedOK
-from websockets.asyncio.server import ServerConnection
+
 
 from ..constants import *
 from ..payload import *
@@ -48,6 +47,12 @@ from ..util import (
 )
 
 if TYPE_CHECKING:
+    import uvicorn
+    from starlette.requests import Request
+    from starlette.responses import Response
+    from starlette.websockets import WebSocket
+    from starlette.applications import Starlette
+    from websockets.asyncio.server import ServerConnection
     from ..client import Client
 
 __all__ = ["Server"]
@@ -60,9 +65,11 @@ class Server(Encryption):
     _start_time: float
     _num_requests: int
     _shutdown_key: str
+    _local_client: Client
+    _remote_client: Client
 
     @property
-    def default_protocol(self) -> Literal["memory", "tcp", "unix", "ws"]:
+    def default_protocol(self) -> PROTOCOL_LITERAL:
         """
         Default protocol for the server.
         """
@@ -80,9 +87,9 @@ class Server(Encryption):
         """
         Default port for the server.
         """
-        if self.scheme == "ws":
+        if self.scheme in ["ws", "http"]:
             return 80
-        elif self.scheme == "wss":
+        elif self.scheme in ["wss", "https"]:
             return 443
         return DEFAULT_PORT
 
@@ -193,7 +200,7 @@ class Server(Encryption):
     """Getter/setter properties"""
 
     @property
-    def protocol(self) -> Literal["memory", "tcp", "unix", "ws"]:
+    def protocol(self) -> PROTOCOL_LITERAL:
         """
         Protocol class for the server.
         """
@@ -202,25 +209,27 @@ class Server(Encryption):
         return self._protocol
 
     @protocol.setter
-    def protocol(self, value: Literal["memory", "tcp", "unix", "ws"]) -> None:
+    def protocol(self, value: PROTOCOL_LITERAL) -> None:
         """
         Set the protocol class for the server.
         """
         self._protocol = value
 
     @property
-    def scheme(self) -> Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]:
+    def scheme(self) -> SCHEME_LITERAL:
         """
         Scheme for the server.
         """
         if self.protocol == "tcp" and self.use_encryption:
             return "tcps"
-        if self.protocol == "ws" and self.use_encryption:
+        elif self.protocol == "ws" and self.use_encryption:
             return "wss"
+        elif self.protocol == "http" and self.use_encryption:
+            return "https"
         return self.protocol
 
     @scheme.setter
-    def scheme(self, value: Literal["memory", "tcp", "tcps", "unix", "ws", "wss"]) -> None:
+    def scheme(self, value: SCHEME_LITERAL) -> None:
         """
         Set the scheme for the server.
         """
@@ -229,6 +238,9 @@ class Server(Encryption):
             self.use_encryption = True
         elif value == "wss":
             self.protocol = "ws"
+            self.use_encryption = True
+        elif value == "https":
+            self.protocol = "http"
             self.use_encryption = True
         else:
             self.protocol = value
@@ -304,9 +316,9 @@ class Server(Encryption):
         self.path = address["path"]
         if address["port"]:
             self.port = address["port"]
-        elif self.scheme == "wss":
+        elif self.scheme in ["wss", "https"]:
             self.port = 443
-        elif self.scheme == "ws":
+        elif self.scheme in ["ws", "http"]:
             self.port = 80
 
     @property
@@ -839,229 +851,423 @@ class Server(Encryption):
         finally:
             await self._decrement_active_requests()
 
+    async def handle_async_client(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter
+    ) -> None:
+        """
+        Handles an async client.
+        """
+        peername = writer.get_extra_info('peername')
+
+        logger.debug(f"Handling connection from {peername}")
+
+        if self.protocol != "unix" and not self._is_ip_allowed(peername[0]):
+            logger.error(f"Connection from {peername[0]} not allowed.")
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        await self._increment_active_requests()
+        try:
+            response: bytes = b""
+            while True:
+                try:
+                    # Read the message length
+                    try:
+                        length_data = await reader.readexactly(4)
+                    except asyncio.IncompleteReadError:
+                        length_data = bytes()
+
+                    if not length_data:
+                        break
+
+                    message_length = struct.unpack('!I', length_data)[0]
+                    logger.debug(f"Received message length {message_length}, reading data.")
+
+                    # Read the message data
+                    data = bytes()
+                    while len(data) < message_length:
+                        try:
+                            packet = await asyncio.wait_for(
+                                reader.read(message_length-len(data)),
+                                timeout=SERVER_POLLING_INTERVAL
+                            )
+                        except asyncio.TimeoutError:
+                            packet = bytes()
+
+                        if not packet:
+                            break
+
+                        data += packet
+
+                    # Decode the data and execute the task
+                    if self.use_encryption and data:
+                        try:
+                            data = self.decrypt(data)
+                        except Exception as e:
+                            logger.error(f"{type(self).__name__}: Error decrypting data: {e}")
+
+                    if data:
+                        try:
+                            request = decode_and_unpack(data)
+                        except Exception as e:
+                            logger.error(f"{type(self).__name__}: Error unpickling data: {e}")
+                            request = None
+                    else:
+                        request = None
+
+                    # Check if the request is a control request while we're in scope
+                    if is_control_message(request):
+                        logger.debug(f"Handling control request: {request}")
+                        if self.protocol != "unix" and not self._is_ip_allowed_control(peername[0]):
+                            # Respond with exception
+                            result = PermissionError("Control request not allowed from {peername[0]}.")
+                        else:
+                            result = await self._handle_control_request(request)
+                            if isinstance(result, str) and result == self._shutdown_key:
+                                if self.protocol == "unix":
+                                    logger.info(f"Received exit request.")
+                                else:
+                                    logger.info(f"Received exit request from {peername[0]}.")
+                                self.manual_exit.set()
+                                result = None
+                    else:
+                        logger.debug(f"Handling request, payload is of type {type(request)}")
+                        result = await self._handle_request(request)
+
+                    response = pack_and_encode(result)
+                except Exception as e:
+                    if getattr(e, "errno", None) == 104: # Connection reset by peer
+                        break
+                    logger.error(f"Error handling request: {e}")
+                    logger.debug(traceback.format_exc())
+                    response = pack_and_encode(e)
+                try:
+                    if self.use_encryption and response:
+                        response = self.encrypt(response)
+                    response_length = struct.pack('!I', len(response))
+                    logger.debug(f"Sending response of length {len(response)}")
+                    writer.write(response_length + response)
+                    await writer.drain()
+                except Exception as e:
+                    if getattr(e, "errno", None) == 32: # Broken pipe
+                        break
+                    logger.error(f"Error sending response: {e}")
+                    logger.debug(traceback.format_exc())
+                    break
+        except Exception as e:
+            logger.error(f"Error handling client: {e}")
+            logger.debug(traceback.format_exc())
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await self._decrement_active_requests()
+
+    async def handle_websocket_client(
+        self,
+        websocket: ServerConnection,
+        path: Optional[str]=None
+    ) -> None:
+        """
+        Handle a websocket connection.
+
+        :param websocket: The websocket connection.
+        :param path: The path of the websocket connection.
+                     This will be set in websockets<14, but not in websockets>=14.
+                     Keep it as optional for compatibility.
+                     If, in the future, we need to use the path variable, we can
+                     find it in websocket.request.path in websockets>=14.
+        """
+        from websockets.exceptions import ConnectionClosedOK
+        logger.debug(f"Handling websocket connection {websocket}")
+        if not self._is_ip_allowed(websocket.remote_address[0]):
+            logger.error(f"Connection from {websocket.remote_address} not allowed.")
+            await websocket.close()
+            return
+
+        request_buffer = bytes()
+        request_len = 0
+
+        try:
+            await self._increment_active_requests()
+            async for message in websocket:
+                request: Any = None
+                response: Any = None
+
+                if message and isinstance(message, bytes):
+                    if not request_buffer:
+                        request_len = struct.unpack('!I', message[:4])[0]
+                        message = message[4:]
+                    request_buffer += message
+                    if len(request_buffer) >= request_len:
+                        try:
+                            request = decode_and_unpack(request_buffer[:request_len])
+                        except Exception as e:
+                            logger.error(f"{type(self).__name__}: Error decoding data: {e}")
+                            logger.debug(traceback.format_exc())
+                            response = e
+                        request_buffer = bytes()
+                        request_len = 0
+
+                if is_control_message(request):
+                    if not self._is_ip_allowed_control(websocket.remote_address[0]):
+                        # Respond with exception
+                        response = PermissionError(f"Control request not allowed from {websocket.remote_address[0]}.")
+                    else:
+                        try:
+                            response = await self._handle_control_request(request)
+                            if response == self._shutdown_key:
+                                self.manual_exit.set()
+                                logger.info(f"Received exit request from {websocket.remote_address[0]}.")
+                                response = None
+                        except Exception as e:
+                            response = e
+                elif request is not None:
+                    logger.debug(f"Handling request, payload is of type {type(request)}")
+                    try:
+                        response = await self._handle_request(request)
+                        self._reset_last_request_time()
+                    except Exception as e:
+                        logger.error(f"{type(self).__name__}: Error handling request: {e}")
+                        logger.debug(traceback.format_exc())
+                        response = e
+
+                if request is not None:
+                    response = pack_and_encode(response)
+                    num_bytes = len(response)
+                    response_len = struct.pack('!I', num_bytes)
+                    response = response_len + response
+                    logger.debug(f"Serving response of length {num_bytes} bytes.")
+                    for chunk in chunk_bytes(response, int(WEBSOCKET_CHUNK_SIZE*0.95)):
+                        try:
+                            await websocket.send(chunk)
+                        except ConnectionClosedOK:
+                            continue
+                        self._reset_last_request_time()
+        finally:
+            await self._decrement_active_requests()
+
+    async def handle_websocket(self, websocket: WebSocket) -> None:
+        """
+        Handles a Starlette websocket connection.
+
+        This has proven slower than using the websockets library directly,
+        but we'll keep it around in case Starlette improves its websocket
+        performance.
+        """
+        from starlette.websockets import WebSocketDisconnect
+        logger.debug(f"Handling websocket connection {websocket}")
+        if websocket.client is not None and not self._is_ip_allowed(websocket.client.host):
+            logger.error(f"Connection from {websocket.client.host} not allowed.")
+            await websocket.close()
+            return
+
+        await websocket.accept()
+        await self._increment_active_requests()
+
+        request_buffer = bytes()
+        request_len = 0
+        request: Any = None
+        response: Any = None
+
+        try:
+            while True:
+                message = await websocket.receive_bytes()
+                if message and isinstance(message, bytes):
+                    if not request_buffer:
+                        request_len = struct.unpack('!I', message[:4])[0]
+                        message = message[4:]
+                    request_buffer += message
+                    if len(request_buffer) >= request_len:
+                        try:
+                            request = decode_and_unpack(request_buffer[:request_len])
+                        except Exception as e:
+                            logger.error(f"{type(self).__name__}: Error decoding data: {e}")
+                            logger.debug(traceback.format_exc())
+                            response = e
+                        request_buffer = bytes()
+                        request_len = 0
+
+                if is_control_message(request):
+                    if websocket.client is not None and not self._is_ip_allowed_control(websocket.client.host):
+                        # Respond with exception
+                        response = PermissionError(f"Control request not allowed from {websocket.client.host}.")
+                    else:
+                        try:
+                            response = await self._handle_control_request(request)
+                            if response == self._shutdown_key:
+                                self.manual_exit.set()
+                                if websocket.client is not None:
+                                    logger.info(f"Received exit request from {websocket.client.host}.")
+                                response = None
+                        except Exception as e:
+                            response = e
+                elif request is not None:
+                    logger.debug(f"Handling request, payload is of type {type(request)}")
+                    try:
+                        response = await self._handle_request(request)
+                        self._reset_last_request_time()
+                    except Exception as e:
+                        logger.error(f"{type(self).__name__}: Error handling request: {e}")
+                        logger.debug(traceback.format_exc())
+                        response = e
+
+                if request is not None:
+                    self._reset_last_request_time()
+                    response = pack_and_encode(response)
+                    num_bytes = len(response)
+                    response_len = struct.pack('!I', num_bytes)
+                    response = response_len + response
+                    logger.debug(f"Serving response of length {num_bytes} bytes.")
+                    for chunk in chunk_bytes(response, int(WEBSOCKET_CHUNK_SIZE*0.95)):
+                        await websocket.send_bytes(chunk)
+            try:
+                await websocket.close()
+            except:
+                pass
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await self._decrement_active_requests()
+
+    async def handle_http_request(self, http_request: Request) -> Response:
+        """
+        Handle an HTTP client.
+
+        :param request: The request object.
+        """
+        from starlette.responses import Response
+
+        # Get the data from the request
+        data = await http_request.body()
+
+        if http_request.client is not None and not self._is_ip_allowed(http_request.client.host):
+            logger.error(f"Connection from {http_request.client.host} not allowed.")
+            return Response(bytes(), status_code=403)
+
+        await self._increment_active_requests()
+        result: Any = None
+        if data:
+            try:
+                request = decode_and_unpack(data)
+            except Exception as e:
+                logger.error(f"{type(self).__name__}: Error unpickling data: {e}")
+                request = None
+        else:
+            request = None
+
+        # Check if the request is a control request
+        try:
+            if is_control_message(request):
+                logger.debug(f"Handling control request: {request}")
+                if http_request.client is not None and not self._is_ip_allowed_control(http_request.client.host):
+                    # Respond with exception
+                    result = PermissionError("Control request not allowed from {http_request.client.host}.")
+                else:
+                    result = await self._handle_control_request(request)
+                    if isinstance(result, str) and result == self._shutdown_key:
+                        if http_request.client is not None:
+                            logger.info(f"Received exit request from {http_request.client.host}.")
+                        self.manual_exit.set()
+                        result = None
+            else:
+                logger.debug(f"Handling request, payload is of type {type(request)}")
+                result = await self._handle_request(request)
+        except Exception as e:
+            result = e
+
+        response = pack_and_encode(result)
+        await self._decrement_active_requests()
+        return Response(
+            response,
+            media_type="application/octet-stream"
+        )
+
+    def create_app(self) -> Starlette:
+        """
+        Creates an HTTP app for the server.
+        """
+        from starlette.applications import Starlette
+        path = self.path
+        if path is None:
+            path = "/"
+        elif not path.startswith("/"):
+            path = f"/{path}"
+        app = Starlette()
+        if self.protocol == "http":
+            app.add_route(path, self.handle_http_request, methods=["POST"])
+        elif self.protocol == "ws":
+            app.add_websocket_route(path, self.handle_websocket)
+        return app
+
+    def create_uvicorn_server(self) -> uvicorn.Server:
+        """
+        Creates a Uvicorn server for the server.
+        """
+        from uvicorn.config import Config
+        from uvicorn.server import Server
+        log_level = logging.getLevelName(logger.level).lower()
+        config = Config(
+            app=self.create_app(),
+            host=self.host,
+            port=self.port,
+            log_level="critical" if log_level == "notset" else log_level,
+        )
+        config.load()
+        config.ssl = self.ssl_context
+        return Server(config)
+
     async def run(self) -> None:
         """
         Run the server.
         """
         self.manual_exit.clear()
-        manual_exit = asyncio.Event()
-
         logger.info(f"Beginning main server loop on {self.address} for {type(self).__name__}")
         server_context = nullcontext()
+
         server = None
-
+        # Get context based on configured protocol
         if self.protocol == "ws":
-            # Define scoped handler
-            async def handle_websocket(
-                websocket: ServerConnection,
-                path: Optional[str]=None
-            ) -> None:
-                """
-                Handle a websocket connection.
-
-                :param websocket: The websocket connection.
-                :param path: The path of the websocket connection.
-                             This will be set in websockets<14, but not in websockets>=14.
-                             Keep it as optional for compatibility.
-                             If, in the future, we need to use the path variable, we can
-                             find it in websocket.request.path in websockets>=14.
-                """
-                logger.debug(f"Handling websocket connection {websocket}")
-                if not self._is_ip_allowed(websocket.remote_address[0]):
-                    logger.error(f"Connection from {websocket.remote_address} not allowed.")
-                    await websocket.close()
-                    return
-                request_buffer: bytes = b""
-                request_len: int = 0
-                try:
-                    await self._increment_active_requests()
-                    async for message in websocket:
-                        request: Any = None
-                        response: Any = None
-                        if message and isinstance(message, bytes):
-                            if not request_buffer:
-                                request_len = struct.unpack('!I', message[:4])[0]
-                                message = message[4:]
-                            request_buffer += message
-                            if len(request_buffer) >= request_len:
-                                try:
-                                    request = decode_and_unpack(request_buffer[:request_len])
-                                except Exception as e:
-                                    logger.error(f"{type(self).__name__}: Error decoding data: {e}")
-                                    logger.debug(traceback.format_exc())
-                                    response = e
-                                request_buffer = b""
-                                request_len = 0
-                        if is_control_message(request):
-                            if not self._is_ip_allowed_control(websocket.remote_address[0]):
-                                # Respond with exception
-                                response = PermissionError(f"Control request not allowed from {websocket.remote_address[0]}.")
-                            else:
-                                try:
-                                    response = await self._handle_control_request(request)
-                                    if response == self._shutdown_key:
-                                        manual_exit.set()
-                                        logger.info(f"Received exit request from {websocket.remote_address[0]}.")
-                                        response = None
-                                except Exception as e:
-                                    response = e
-                        elif request is not None:
-                            logger.debug(f"Handling request, payload is of type {type(request)}")
-                            try:
-                                response = await self._handle_request(request)
-                                self._reset_last_request_time()
-                            except Exception as e:
-                                logger.error(f"{type(self).__name__}: Error handling request: {e}")
-                                logger.debug(traceback.format_exc())
-                                response = e
-                        if request is not None:
-                            response = pack_and_encode(response)
-                            num_bytes = len(response)
-                            response_len = struct.pack('!I', num_bytes)
-                            response = response_len + response
-                            logger.debug(f"Serving response of length {num_bytes} bytes.")
-                            for chunk in chunk_bytes(response, int(WEBSOCKET_CHUNK_SIZE*0.95)):
-                                try:
-                                    await websocket.send(chunk)
-                                except ConnectionClosedOK:
-                                    continue
-                                self._reset_last_request_time()
-                finally:
-                    await self._decrement_active_requests()
-
-            # Define server context to enter
+            import websockets
             server_context = websockets.serve( # type: ignore[assignment]
-                handle_websocket,
+                self.handle_websocket_client,
                 self.host,
                 self.port,
                 ssl=self.ssl_context,
                 max_size=WEBSOCKET_CHUNK_SIZE,
             )
+        elif self.protocol == "http":
+            server = self.create_uvicorn_server()
+            # We use the private _serve instead of serve because 
+            # we already installed signal handlers in the parent process
+            server_context = TaskRunner(server._serve()) # type: ignore[assignment]
         elif not self.protocol == "memory":
             if self.protocol == "unix":
                 assert self.path is not None, "Path must be set for UNIX sockets."
-
-            if self.protocol == "unix" and os.path.exists(self.path): # type: ignore[arg-type]
-                os.remove(self.path) # type: ignore[arg-type]
-
-            async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-                """
-                Handle a client connection.
-                """
-                nonlocal manual_exit
-                peername = writer.get_extra_info('peername')
-
-                logger.debug(f"Handling connection from {peername}")
-
-                if self.protocol != "unix" and not self._is_ip_allowed(peername[0]):
-                    logger.error(f"Connection from {peername[0]} not allowed.")
-                    writer.close()
-                    await writer.wait_closed()
-                    return
-
-                await self._increment_active_requests()
-                try:
-                    response: bytes = b""
-                    while True:
-                        try:
-                            # Read the message length
-                            try:
-                                length_data = await reader.readexactly(4)
-                            except (asyncio.IncompleteReadError) as ex:
-                                length_data = b""
-
-                            if not length_data:
-                                break
-
-                            message_length = struct.unpack('!I', length_data)[0]
-                            logger.debug(f"Received message length {message_length}, reading data.")
-                            # Read the message data
-                            data = b''
-                            while len(data) < message_length:
-                                try:
-                                    packet = await asyncio.wait_for(
-                                        reader.read(message_length-len(data)),
-                                        timeout=SERVER_POLLING_INTERVAL
-                                    )
-                                except asyncio.TimeoutError:
-                                    packet = b""
-                                if not packet:
-                                    break
-                                data += packet
-
-                            # Decode the data and execute the task
-                            if self.use_encryption and data:
-                                try:
-                                    data = self.decrypt(data)
-                                except Exception as e:
-                                    logger.error(f"{type(self).__name__}: Error decrypting data: {e}")
-
-                            if data:
-                                try:
-                                    request = decode_and_unpack(data)
-                                except Exception as e:
-                                    logger.error(f"{type(self).__name__}: Error unpickling data: {e}")
-                                    request = None
-                            else:
-                                request = None
-
-                            # Check if the request is a control request while we're in scope
-                            if is_control_message(request):
-                                logger.debug(f"Handling control request: {request}")
-                                if self.protocol != "unix" and not self._is_ip_allowed_control(peername[0]):
-                                    # Respond with exception
-                                    result = PermissionError("Control request not allowed from {peername[0]}.")
-                                else:
-                                    result = await self._handle_control_request(request)
-                                    if isinstance(result, str) and result == self._shutdown_key:
-                                        if self.protocol == "unix":
-                                            logger.info(f"Received exit request.")
-                                        else:
-                                            logger.info(f"Received exit request from {peername[0]}.")
-                                        manual_exit.set()
-                                        result = None
-                            else:
-                                logger.debug(f"Handling request, payload is of type {type(request)}")
-                                result = await self._handle_request(request)
-
-                            response = pack_and_encode(result)
-                        except Exception as e:
-                            if getattr(e, "errno", None) == 104: # Connection reset by peer
-                                break
-                            logger.error(f"Error handling request: {e}")
-                            logger.debug(traceback.format_exc())
-                            response = pack_and_encode(e)
-                        try:
-                            if self.use_encryption and response:
-                                response = self.encrypt(response)
-                            response_length = struct.pack('!I', len(response))
-                            logger.debug(f"Sending response of length {len(response)}")
-                            writer.write(response_length + response)
-                            await writer.drain()
-                        except Exception as e:
-                            if getattr(e, "errno", None) == 32: # Broken pipe
-                                break
-                            logger.error(f"Error sending response: {e}")
-                            logger.debug(traceback.format_exc())
-                            break
-                except Exception as e:
-                    logger.error(f"Error handling client: {e}")
-                    logger.debug(traceback.format_exc())
-                finally:
-                    writer.close()
-                    await writer.wait_closed()
-                    await self._decrement_active_requests()
+                if os.path.exists(self.path):
+                    os.remove(self.path)
 
             if self.protocol == "unix":
-                server_context = await asyncio.start_unix_server(handle_client, path=self.path) # type: ignore[assignment]
+                server_context = await asyncio.start_unix_server( # type: ignore[assignment]
+                    self.handle_async_client,
+                    path=self.path
+                )
             else:
-                server_context = await asyncio.start_server(handle_client, self.host, self.port, ssl=self.ssl_context) # type: ignore[assignment]
+                server_context = await asyncio.start_server( # type: ignore[assignment]
+                    self.handle_async_client,
+                    self.host,
+                    self.port,
+                    ssl=self.ssl_context
+                )
+
         try:
             async with self.context():
                 async with server_context:
                     await self.post_start()
                     self._reset_last_request_time()
-                    while not manual_exit.is_set() and not self.manual_exit.is_set():
+                    while not self.manual_exit.is_set():
                         try:
                             await asyncio.sleep(SERVER_POLLING_INTERVAL)
                         except asyncio.TimeoutError:
@@ -1080,11 +1286,6 @@ class Server(Encryption):
             return
         finally:
             try:
-                if server is not None:
-                    server.close()
-            except Exception as e:
-                pass
-            try:
                 logger.debug(f"Shutting down {type(self).__name__} on {self.address}.")
                 await self.shutdown()
             except Exception as e:
@@ -1095,6 +1296,9 @@ class Server(Encryption):
                         os.remove(self.path)
                     except:
                         pass
+                elif server is not None:
+                    await server.shutdown()
+                logger.debug(f"Shutdown complete for {type(self).__name__} on {self.address}.")
 
     def get_client(self) -> Client:
         """
@@ -1126,20 +1330,17 @@ class Server(Encryption):
         """
         client = self.get_client()
         logger.debug(f"Sending exit request to {self.address}")
-        try:
-            await client(
-                self.pack_control_message("exit"),
-                retries=retries,
-                timeout=timeout
-            )
-        except ConnectionClosedOK:
-            pass
+        await client(
+            self.pack_control_message("exit"),
+            retries=retries,
+            timeout=timeout
+        )
 
     async def assert_connectivity(
         self,
         timeout: Optional[float]=0.1,
         timeout_growth: Optional[float]=0.5,
-        retries: int=15,
+        retries: int=3,
     ) -> None:
         """
         Assert that the server is running and can be connected to.

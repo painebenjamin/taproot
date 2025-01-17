@@ -22,7 +22,7 @@ class StableDiffusionClarityV3(StableDiffusionBase):
     finetune_author_url = "https://civitai.com/user/ndimensional"
 
     """License Metadata"""
-    license = "OpenRAIL-M License with Restrictions"
+    license = "OpenRAIL-M License with Addendum"
     license_url = "https://civitai.com/models/license/142125"
     license_attribution = True
     license_derivatives = False

@@ -4,6 +4,7 @@ from taproot import Server
 from taproot.util import (
     blue,
     cyan,
+    magenta,
     execute_echo_test,
     generate_temp_key_and_cert,
     get_test_server_addresses,
@@ -47,6 +48,16 @@ def test_echo_speed() -> None:
                 print(f"    median: {green(human_duration(median_time))}")
                 print(f"    mean: {green(human_duration(mean_time))}")
                 print(f"    transfer rate: {green(human_size(transfer_rate) + '/s')}")
+
+        print(f"{magenta('Protocol Summary')}:")
+        for scheme, data in results.items():
+            overall_min_time = min(min(times) for times in data.values())
+            max_transfer_rate = max(
+                size * 2 / (sum(times) / len(times))
+                for size, times in data.items()
+            )
+            print(f"  {cyan(scheme)}: Latency: {green(human_duration(overall_min_time))}, Transfer Rate: {green(human_size(max_transfer_rate) + '/s')}")
+
         print(
             save_test_image(
                 plot_echo_test_results(results),

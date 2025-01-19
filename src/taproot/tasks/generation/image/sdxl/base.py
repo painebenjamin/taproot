@@ -13,9 +13,13 @@ from taproot.pretrained import (
     OpenCLIPViTGTextEncoder,
     OpenCLIPViTGTokenizer,
 )
-from taproot.tasks.helpers import SpatialPromptInputType
+from taproot.tasks.helpers import (
+    LoRAInputType,
+    SpatialPromptInputType
+)
 
 from ..base import DiffusersTextToImageTask
+from .lora import StableDiffusionXLHostedLoRA
 from .pretrained import (
     SDXLVAE,
     SDXLUNet,
@@ -57,6 +61,7 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
     default_steps = DEFAULT_NUM_STEPS
     use_compel = True
     model_type = "sdxl"
+    pretrained_lora = StableDiffusionXLHostedLoRA.catalog() # type: ignore[assignment]
 
     """Authorship Metadata"""
     author = "Dustin Podell"
@@ -204,6 +209,7 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
         sigmas: Optional[List[float]] = None,
         denoising_end: Optional[float] = None,
         strength: Optional[float] = None,
+        lora: Optional[LoRAInputType] = None,
         latents: Optional[torch.Tensor] = None,
         prompt_embeds: Optional[torch.Tensor] = None,
         negative_prompt_embeds: Optional[torch.Tensor] = None,
@@ -249,6 +255,7 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
                 denoising_end=denoising_end,
                 latents=latents,
                 strength=strength,
+                lora=lora,
                 seed=seed,
                 pag_scale=pag_scale,
                 pag_adaptive_scale=pag_adaptive_scale,

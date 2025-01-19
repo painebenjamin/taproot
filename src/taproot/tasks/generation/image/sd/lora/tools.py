@@ -3,6 +3,7 @@ from .base import StableDiffusionHostedLoRA
 __all__ = [
     "AddDetailStableDiffusionHostedLoRA",
     "NoiseOffsetStableDiffusionHostedLoRA",
+    "DPOStableDiffusionHostedLoRA"
 ]
 
 class AddDetailStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
@@ -30,3 +31,16 @@ class NoiseOffsetStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
     license_derivatives = False
     license_commercial = True
     license_hosting = False
+
+class DPOStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
+    name = "dpo"
+    url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lora-dpo.fp16.safetensors"
+    author = "mhdang"
+    author_url = "https://huggingface.co/mhdang"
+    license = "OpenRAIL-M License with Addendum"
+    license_attribution = False
+    license_redistribution = True
+    license_copy_left = False
+    license_derivatives = True
+    license_commercial = True
+    license_hosting = True

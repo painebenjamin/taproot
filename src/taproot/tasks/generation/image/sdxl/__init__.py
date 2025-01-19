@@ -8,6 +8,7 @@ from .dreamshaper import *
 from .helloworld import *
 from .juggernaut import *
 from .lightning import *
+from .lora import *
 from .nightvision import *
 from .realvis import *
 from .stoiqo_newreality import *

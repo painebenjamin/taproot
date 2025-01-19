@@ -114,6 +114,10 @@ class AsyncRunner:
                 import uvloop
                 uvloop.run(self.main(), debug=debug)
             else:
+                if platform.system() == "Windows":
+                    # Required for aiodns
+                    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
                 asyncio.run(self.main())
         except asyncio.CancelledError:
             if not ignore_cancel:
@@ -297,6 +301,10 @@ class ServerRunner:
                 debug=debug
             )
         else:
+            if platform.system() == "Windows":
+                # Required for aiodns
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
             asyncio.run(
                 self.main(install_signal_handlers=install_signal_handlers)
             )

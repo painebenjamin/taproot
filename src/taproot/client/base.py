@@ -653,7 +653,6 @@ class Client(Encryption):
         result: Any = None
         try:
             if self.protocol == "memory":
-                address_label = f"memory[{self.port}]"
                 from ..server import get_in_memory_server
                 logger.debug(f"Dispatching request directly to in-memory server on port {self.port}.")
                 try:
@@ -664,7 +663,6 @@ class Client(Encryption):
             elif self.protocol == "http":
                 import aiohttp
                 async with self._get_http_session() as session:
-                    address_label = self.address
                     encoded = pack_and_encode(request)
                     logger.debug(f"Sending message to {self.address} (timeout: {timeout}).")
                     try:
@@ -676,7 +674,7 @@ class Client(Encryption):
                             headers={"Content-Type": "application/octet-stream"}
                         ) as http_response:
                             if http_response.status != 200:
-                                raise ConnectionError(f"Error querying {address_label}: {http_response.status}")
+                                raise ConnectionError(f"Error querying {self.address}: {http_response.status}")
 
                             result = await http_response.read()
                             if result is None or result == bytes():
@@ -687,9 +685,8 @@ class Client(Encryption):
                                 raise result
                             return result
                     except aiohttp.ClientError as e:
-                        raise ConnectionError(f"Error querying {address_label}") from e
+                        raise ConnectionError(f"Error querying {self.address}") from e
             elif self.protocol == "ws":
-                address_label = self.address
                 async with self._get_websocket() as websocket:
                     encoded = pack_and_encode(request)
                     encoded_len = struct.pack('!I', len(encoded))
@@ -702,7 +699,7 @@ class Client(Encryption):
                             if i > 0 and i % 2 == 0:
                                 await asyncio.sleep(0.001) # Sleep for a millisecond every other chunk to give the server a chance to process
                         except Exception as e:
-                            logger.error(f"Error sending message to {address_label}. {e}")
+                            logger.error(f"Error sending message to {self.address}. {e}")
                             raise
 
                     logger.debug("Message sent, awaiting response.")
@@ -727,17 +724,15 @@ class Client(Encryption):
                     address: Union[str, Tuple[str, int]]
                     if self.protocol == "unix":
                         assert self.path is not None, "Path must be set for UNIX sockets."
-                        address_label = self.path
                         address = self.path
-                        logger.debug(f"Connecting to {address_label} with `asyncio.open_unix_connection`.")
+                        logger.debug(f"Connecting to {self.address} with `asyncio.open_unix_connection`.")
                         reader, writer = await asyncio.open_unix_connection(address)
                     else:
-                        address_label = f"{self.host}:{self.port}"
                         address = (self.host, self.port)
-                        logger.debug(f"Connecting to {address_label} with `asyncio.open_connection`.")
+                        logger.debug(f"Connecting to {self.address} with `asyncio.open_connection`.")
                         reader, writer = await asyncio.open_connection(*address, ssl=self.ssl_context)
                 except Exception as e:
-                    raise ConnectionError(f"Could not connect to {address_label}: {e}")
+                    raise ConnectionError(f"Could not connect to {self.address}: {e}")
 
                 try:
                     message_data = pack_and_encode(request)
@@ -748,7 +743,7 @@ class Client(Encryption):
                     message_len = len(message_data)
                     message_length = struct.pack('!I', message_len)
 
-                    logger.debug(f"Sending message of length {message_len} to {address_label} ({'encrypted' if self.use_encryption else 'unencrypted'}).")
+                    logger.debug(f"Sending message of length {message_len} to {self.address} ({'encrypted' if self.use_encryption else 'unencrypted'}).")
                     writer.write(message_length + message_data)
                     await writer.drain()
                     logger.debug(f"Message sent, awaiting response. Timeout: {timeout}")
@@ -786,11 +781,11 @@ class Client(Encryption):
                         try:
                             response = self.decrypt(response)
                         except Exception as e:
-                            logger.error(f"Error decrypting response from {address_label}. {e}")
+                            logger.error(f"Error decrypting response from {self.address}. {e}")
                     try:
                         result = decode_and_unpack(response) # type: ignore[arg-type,unused-ignore]
                     except:
-                        logger.error(f"Error decoding response from {address_label}.")
+                        logger.error(f"Error decoding response from {self.address}.")
                         raise
 
                     if isinstance(result, Exception):
@@ -803,7 +798,7 @@ class Client(Encryption):
 
         except Exception as e:
             if retries > 0:
-                logger.debug(f"Error querying {address_label}, retrying up to {retries} more time(s). {type(e).__name__}({e})")
+                logger.debug(f"Error querying {self.address}, retrying up to {retries} more time(s). {type(e).__name__}({e})")
                 if timeout and retries:
                     # Websockets return immediately, whereas the others will timeout after a time.
                     # To emulate the same behavior, we'll sleep for the remaining time.
@@ -830,14 +825,14 @@ class Client(Encryption):
 
             if isinstance(e, asyncio.TimeoutError):
                 if timeout_response is not NOTSET:
-                    logger.debug(f"Timeout querying {address_label}, returning timeout response.")
+                    logger.debug(f"Timeout querying {self.address}, returning timeout response.")
                     return timeout_response
 
             if error_response is not NOTSET:
-                logger.debug(f"Error querying {address_label}, returning error response.")
+                logger.debug(f"Error querying {self.address}, returning error response.")
                 return error_response
 
-            logger.debug(f"Retries exhausted querying {address_label}, re-raising exception.")
+            logger.debug(f"Retries exhausted querying {self.address}, re-raising exception.")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(traceback.format_exc())
 

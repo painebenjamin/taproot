@@ -375,10 +375,11 @@ def generate_temp_key_and_cert(
     Generate a temporary key and certificate for testing purposes using the command:
     $ openssl req -new -x509 -days 365 -nodes -out cert.pem -keyout key.pem
     """
+    openssl_binary = os.getenv("OPENSSL_BIN", "openssl")
     subj = f"/C={country}/ST={state}/L={location}/O={organization}/CN={domain}"
     key_path = tempfile.mktemp(prefix="key_", suffix=".pem")
     cert_path = tempfile.mktemp(prefix="cert_", suffix=".pem")
-    args = ["openssl", "req", "-new", "-x509", "-days", "365", "-nodes", "-out", cert_path, "-keyout", key_path, "-subj", subj]
+    args = [openssl_binary, "req", "-new", "-x509", "-days", "365", "-nodes", "-out", cert_path, "-keyout", key_path, "-subj", subj]
     if ip_address:
         args += ["-addext", f"subjectAltName=IP:{ip_address}"]
     subprocess.run(args, check=True)

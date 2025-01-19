@@ -116,7 +116,7 @@ class AsyncRunner:
             else:
                 if platform.system() == "Windows":
                     # Required for aiodns
-                    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+                    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # type: ignore[attr-defined]
 
                 asyncio.run(self.main())
         except asyncio.CancelledError:
@@ -303,7 +303,7 @@ class ServerRunner:
         else:
             if platform.system() == "Windows":
                 # Required for aiodns
-                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # type: ignore[attr-defined]
 
             asyncio.run(
                 self.main(install_signal_handlers=install_signal_handlers)

@@ -30,7 +30,6 @@ class GridMaker:
     """
     A small class for building grids of images.
     """
-
     use_video: bool = False
     font_url: str = "https://github.com/adobe-fonts/source-code-pro/raw/release/TTF/SourceCodePro-Regular.ttf"
     font_size: int = 12

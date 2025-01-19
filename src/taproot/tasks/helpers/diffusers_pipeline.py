@@ -491,6 +491,7 @@ class DiffusersPipelineTask(Task):
         prompts: List[str],
         negative_prompts: Optional[List[str]]=None,
         clip_skip: Optional[int]=None,
+        max_sequence_length: Optional[int]=None,
     ) -> Optional[
         Tuple[
             torch.Tensor,
@@ -548,6 +549,7 @@ class DiffusersPipelineTask(Task):
                 prompt=prompt,
                 tokenizer=tokenizers[i],
                 text_encoder=text_encoders[i],
+                max_sequence_length=max_sequence_length,
                 clip_skip=clip_skip,
                 device="cpu"
             )
@@ -570,6 +572,7 @@ class DiffusersPipelineTask(Task):
                     tokenizer=tokenizers[i],
                     text_encoder=text_encoders[i],
                     clip_skip=clip_skip,
+                    max_sequence_length=max_sequence_length,
                     device="cpu"
                 )
                 if isinstance(encoded, tuple):
@@ -638,6 +641,7 @@ class DiffusersPipelineTask(Task):
         kwargs: Dict[str, Any],
         accepts_negative_prompt: bool,
         clip_skip: Optional[int]=None,
+        max_sequence_length: Optional[int]=None,
     ) -> None:
         """
         Compiles prompts using compel, updating the kwarg dictionary in-place.
@@ -650,7 +654,9 @@ class DiffusersPipelineTask(Task):
             prompts=prompts,
             negative_prompts=negative_prompts,
             clip_skip=clip_skip,
+            max_sequence_length=max_sequence_length,
         )
+
         if compiled_prompt_embeds is None:
             return
 
@@ -683,6 +689,7 @@ class DiffusersPipelineTask(Task):
         kwargs: Dict[str, Any],
         accepts_negative_prompt: bool,
         clip_skip: Optional[int]=None,
+        max_sequence_length: Optional[int]=None,
         spatial_prompts: Optional[List[SpatioTemporalPrompt]]=None,
     ) -> EncodedPrompts:
         """
@@ -699,6 +706,7 @@ class DiffusersPipelineTask(Task):
                     prompts=[spatial_prompt.prompt],
                     negative_prompts=None if not accepts_negative_prompt or not spatial_prompt.negative_prompt else [spatial_prompt.negative_prompt],
                     clip_skip=clip_skip,
+                    max_sequence_length=max_sequence_length,
                 )
                 encoded_prompt = EncodedPrompt(
                     embeddings=prompt_embeds,

@@ -196,7 +196,7 @@ class AuraSuperResolutionV2(AuraSuperResolution):
 
     """Global Task Metadata"""
     model = "aura-v2"
-    default = True
+    default = False
     display_name = "Aura Super Resolution V2"
 
     """Internal Task Attributes"""

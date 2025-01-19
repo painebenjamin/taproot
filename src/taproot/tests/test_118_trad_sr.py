@@ -6,9 +6,9 @@ from taproot.util import (
     execute_task_test_suite
 )
 
-def test_aura() -> None:
+def test_traditional_super_resolution() -> None:
     """
-    Test the aura super-resolution task.
+    Test traditional super-resolution models.
     """
     with debug_logger() as logger:
         # Baseline test
@@ -18,11 +18,11 @@ def test_aura() -> None:
             number=1
         )
 
-        for i, model_name in enumerate(["aura", "aura-v2"]):
+        for method in ["bicubic", "nearest", "bilinear", "lanczos", "box", "hamming"]:
             try:
                 cat_image_result = get_test_result(
-                    subject=f"4x_{model_name}",
-                    size="1024x1024",
+                    subject=f"2x_{method}",
+                    size="512x512",
                     number=1
                 )
             except FileNotFoundError:
@@ -30,14 +30,13 @@ def test_aura() -> None:
 
             test_results = execute_task_test_suite(
                 "super-resolution",
-                model=model_name,
-                assert_static_memory_ratio=0.25 if i == 0 else None,
                 cases=[
-                    ({"image": cat_image, "seed": 12345}, cat_image_result)
+                    ({"image": cat_image, "method": method}, cat_image_result)
                 ]
             )
+
             if cat_image_result is None:
                 save_test_image(
                     test_results[0],
-                    f"4x_{model_name}",
+                    f"2x_{method}",
                 )

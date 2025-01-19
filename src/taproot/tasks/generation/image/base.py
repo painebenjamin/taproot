@@ -235,6 +235,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         highres_fix_factor: Optional[float]=1.0,
         highres_fix_strength: Optional[float]=None,
         clip_skip: Optional[int]=None,
+        max_sequence_length: Optional[int]=None,
         spatial_prompts: Optional[SpatialPromptInputType]=None,
         lora: Optional[LoRAInputType]=None,
         textual_inversion: Optional[TextualInversionInputType]=None,
@@ -337,6 +338,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             kwargs["timesteps"] = timesteps
 
         invoke_signature = inspect.signature(pipeline.__call__) # type: ignore[operator]
+        accepts_sequence_length = "max_sequence_length" in invoke_signature.parameters
         accepts_clip_skip = "clip_skip" in invoke_signature.parameters
         accepts_output_type = "output_type" in invoke_signature.parameters
         accepts_output_format = "output_format" in invoke_signature.parameters
@@ -363,10 +365,18 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 pipeline,
                 kwargs,
                 clip_skip=clip_skip,
+                max_sequence_length=max_sequence_length,
                 accepts_negative_prompt=accepts_negative_prompt,
             )
-        elif accepts_clip_skip:
-            kwargs["clip_skip"] = clip_skip
+        else:
+            if accepts_clip_skip:
+                kwargs["clip_skip"] = clip_skip
+            elif clip_skip is not None:
+                logger.warning("Pipeline does not accept clip_skip, ignoring.")
+            if accepts_sequence_length:
+                kwargs["max_sequence_length"] = max_sequence_length
+            elif max_sequence_length is not None:
+                logger.warning("Pipeline does not accept max_sequence_length, ignoring.")
 
         if use_multidiffusion and self.use_multidiffusion:
             spatial_prompts = self.get_spatial_prompts(spatial_prompts) if spatial_prompts is not None else None
@@ -374,6 +384,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 pipeline,
                 kwargs=kwargs,
                 clip_skip=clip_skip,
+                max_sequence_length=max_sequence_length,
                 accepts_negative_prompt=accepts_negative_prompt,
                 spatial_prompts=spatial_prompts,
             )

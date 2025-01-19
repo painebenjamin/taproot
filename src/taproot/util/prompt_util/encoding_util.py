@@ -17,6 +17,7 @@ def encode_prompt_for_model(
     model_type: Optional[DIFFUSERS_MODEL_TYPE_LITERAL]=None,
     device: Optional[str]=None,
     clip_skip: Optional[int]=None,
+    max_sequence_length: Optional[int]=None
 ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
     """
     Encodes a text prompt using compel.
@@ -45,6 +46,7 @@ def encode_prompt_for_model(
     )
 
     compel.clip_skip = 0 if not clip_skip else clip_skip
+    compel.max_sequence_length = max_sequence_length
 
     if requires_pooled:
         embeds, pooled_embeds = compel([prompt])

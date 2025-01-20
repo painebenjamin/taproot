@@ -1,9 +1,9 @@
-from ..weights_util import HostedWeights
+from ..weights_util import PretrainedWeights
 
-__all__ = ["HostedLoRA", "HostedTextualInversion"]
+__all__ = ["PretrainedLoRA", "PretrainedTextualInversion"]
 
-class HostedLoRA(HostedWeights):
+class PretrainedLoRA(PretrainedWeights):
     recommended_scale: float = 1.0
 
-class HostedTextualInversion(HostedWeights):
+class PretrainedTextualInversion(PretrainedWeights):
     pass

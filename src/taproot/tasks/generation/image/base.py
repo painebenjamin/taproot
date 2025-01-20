@@ -280,9 +280,15 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             highres_fix_strength is not None and highres_fix_strength > 0.0
         )
 
+        if is_controlnet:
+            controlnet = list(control_image.keys()) # type: ignore[union-attr]
+        else:
+            controlnet = None
+
         pipeline = self.get_pipeline(
             lora=lora,
             scheduler=scheduler,
+            controlnet=controlnet,
             textual_inversion=textual_inversion,
             is_image_to_image=is_image_to_image,
             is_controlnet=is_controlnet,
@@ -305,14 +311,14 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             kwargs["strength"] = strength or 1.0
         elif is_image_to_image and is_controlnet:
             kwargs["image"] = image
-            kwargs["control_image"] = control_image
+            kwargs["control_image"] = [control_image[key] for key in controlnet] # type: ignore[index,union-attr]
             kwargs["conditioning_strength"] = conditioning_strength or 1.0
             kwargs["strength"] = strength or 0.6
         elif is_image_to_image:
             kwargs["image"] = image
             kwargs["strength"] = strength or 0.6
         elif is_controlnet:
-            kwargs["image"] = control_image
+            kwargs["image"] = [control_image[key] for key in controlnet] # type: ignore[index,union-attr]
             kwargs["conditioning_strength"] = conditioning_strength or 1.0
 
         if is_pag:
@@ -453,4 +459,5 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
 
             return result # type: ignore[no-any-return]
         finally:
+            self.unload_controlnet()
             self.disable_multidiffusion()

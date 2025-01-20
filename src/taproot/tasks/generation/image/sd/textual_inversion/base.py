@@ -1,6 +1,6 @@
-from taproot.util import HostedTextualInversion
+from taproot.util import PretrainedTextualInversion
 
-__all__ = ["StableDiffusionHostedTextualInversion"]
+__all__ = ["StableDiffusionPretrainedTextualInversion"]
 
-class StableDiffusionHostedTextualInversion(HostedTextualInversion):
+class StableDiffusionPretrainedTextualInversion(PretrainedTextualInversion):
     pass

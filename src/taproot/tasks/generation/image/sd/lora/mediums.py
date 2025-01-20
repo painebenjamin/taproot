@@ -1,10 +1,10 @@
-from .base import StableDiffusionHostedLoRA
+from .base import StableDiffusionPretrainedLoRA
 
 __all__ = [
-    "PolaroidStableDiffusionHostedLoRA",
+    "PolaroidStableDiffusionPretrainedLoRA",
 ]
 
-class PolaroidStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
+class PolaroidStableDiffusionPretrainedLoRA(StableDiffusionPretrainedLoRA):
     name = "polaroid"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lora-polaroid.fp16.safetensors"
     author = "LEOSAM"

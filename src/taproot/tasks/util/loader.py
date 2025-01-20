@@ -162,7 +162,7 @@ class Loader:
         ):
             self.compile_by_name(model_name)
 
-    def __getattr__(self, model_name: str) -> Any:
+    def __getitem__(self, model_name: str) -> Any:
         """
         Get a loaded model
         """
@@ -174,6 +174,12 @@ class Loader:
                 return getattr(self, model_name)
             except KeyError:
                 raise AttributeError(f"Model/Task {model_name} not found")
+
+    def __getattr__(self, model_name: str) -> Any:
+        """
+        Get a loaded model
+        """
+        return self[model_name]
 
 class PretrainedLoader(Loader):
     """

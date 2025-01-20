@@ -1,6 +1,6 @@
-from taproot.util import HostedLoRA
+from taproot.util import PretrainedLoRA
 
-__all__ = ["StableDiffusionHostedLoRA"]
+__all__ = ["StableDiffusionPretrainedLoRA"]
 
-class StableDiffusionHostedLoRA(HostedLoRA):
+class StableDiffusionPretrainedLoRA(PretrainedLoRA):
     pass

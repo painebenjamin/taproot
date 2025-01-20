@@ -30,11 +30,13 @@ from taproot.util import (
     SpatioTemporalPrompt,
     EncodedPrompts,
     EncodedPrompt,
-    HostedLoRA,
-    HostedTextualInversion,
+    PretrainedLoRA,
+    PretrainedTextualInversion,
+    PretrainedModelMixin,
 )
 from taproot.constants import *
 from taproot.tasks.base import Task
+from taproot.tasks.util import PretrainedLoader
 
 if TYPE_CHECKING:
     import torch
@@ -72,10 +74,32 @@ class DiffusersPipelineTask(Task):
     pag_applied_layers: Optional[List[str]] = None
     default_negative_prompt: Optional[str] = "lowres, blurry, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
 
-    pretrained_lora: Optional[Dict[str, Type[HostedLoRA]]] = None
+    pretrained_lora: Optional[Dict[str, Type[PretrainedLoRA]]] = None
     loaded_lora: Optional[List[str]] = None
-    pretrained_textual_inversion: Optional[Dict[str, Type[HostedTextualInversion]]] = None
+    pretrained_textual_inversion: Optional[Dict[str, Type[PretrainedTextualInversion]]] = None
     loaded_textual_inversion: Optional[List[str]] = None
+    pretrained_controlnet: Optional[Dict[str, Type[PretrainedModelMixin]]] = None
+
+    @classmethod
+    def get_pretrained_loader(
+        cls,
+        model_dir: str=DEFAULT_MODEL_DIR,
+        device: Optional[Union[str, torch.device]]=None,
+        dtype: Optional[Union[str, torch.dtype]]=None,
+        allow_optional: bool=True,
+    ) -> PretrainedLoader:
+        """
+        Get the pretrained loader.
+        """
+        loader = super().get_pretrained_loader(
+            model_dir=model_dir,
+            device=device,
+            dtype=dtype,
+            allow_optional=allow_optional,
+        )
+        if cls.pretrained_controlnet is not None and allow_optional:
+            loader.models.update(cls.pretrained_controlnet)
+        return loader
 
     @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
@@ -313,6 +337,30 @@ class DiffusersPipelineTask(Task):
             for textual_inversion_name_or_path in textual_inversion:
                 self.load_textual_inversion_weights(textual_inversion_name_or_path, pipeline)
 
+    def get_controlnet(
+        self,
+        controlnet: Union[str, Sequence[str]]
+    ) -> Union[torch.nn.Module, List[torch.nn.Module]]:
+        """
+        Gets the controlnet.
+        """
+        if isinstance(controlnet, (list, tuple)):
+            controlnets = list(controlnet)
+        else:
+            controlnets = [controlnet]
+
+        if self.pretrained_controlnet is None:
+            raise ValueError(f"No pretrained controlnet models available for {type(self).__name__}")
+
+        try:
+            controlnets = [self.pretrained[name] for name in controlnets]
+        except KeyError as ex:
+            raise ValueError(f"Controlnet model {ex} not found in pretrained controlnet models for {type(self).__name__}") from ex
+
+        if len(controlnets) == 1:
+            return controlnets[0] # type: ignore[no-any-return]
+        return controlnets
+
     def get_pipeline(self, **kwargs: Any) -> DiffusionPipeline:
         """
         Get the pipeline.
@@ -321,6 +369,10 @@ class DiffusersPipelineTask(Task):
         pipeline_class = self.get_pipeline_class(**kwargs)
         pipeline_modules = self.get_pipeline_modules()
         pipeline_kwargs = self.get_pipeline_kwargs(**kwargs)
+
+        controlnet_names = kwargs.get("controlnet", None)
+        if controlnet_names is not None:
+            pipeline_modules["controlnet"] = self.get_controlnet(controlnet_names) # type: ignore[assignment]
 
         pipeline_modules["scheduler"] = self.get_scheduler( # type: ignore[assignment]
             scheduler_name=kwargs.get("scheduler", None),
@@ -442,6 +494,22 @@ class DiffusersPipelineTask(Task):
         Disable multidiffusion.
         """
         disable_2d_multidiffusion(self.get_denoising_model())
+
+    def offload_controlnet(self) -> None:
+        """
+        Offloads any controlnets that are loaded.
+        """
+        if self.pretrained_controlnet is not None:
+            for name in self.pretrained_controlnet:
+                self.pretrained.offload_by_name(name)
+
+    def unload_controlnet(self) -> None:
+        """
+        Unloads any controlnets that are loaded.
+        """
+        if self.pretrained_controlnet is not None:
+            for name in self.pretrained_controlnet:
+                self.pretrained.unload_by_name(name)
 
     def get_scheduler(
         self,

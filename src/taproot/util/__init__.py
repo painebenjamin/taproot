@@ -5,6 +5,7 @@ from .capability_util import *
 from .chunk_util import *
 from .command_util import *
 from .cuda_util import *
+from .discovery_util import *
 from .diffusers_util import *
 from .download_util import *
 from .grid_util import *

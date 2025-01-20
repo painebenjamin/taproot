@@ -107,6 +107,7 @@ class InformativeDrawingsLineartDetection(Task):
         :return: The output image
         """
         from torch import inference_mode
+        width, height = get_image_width_height(image)
         images = to_bchw_tensor(
             image,
             resize=(512, 512),
@@ -118,7 +119,7 @@ class InformativeDrawingsLineartDetection(Task):
             )
             results = scale_tensor(
                 1.0-results,
-                size=get_image_width_height(image)
+                size=(height, width),
             )
             return self.get_output_from_image_result(
                 results,

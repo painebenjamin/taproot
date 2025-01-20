@@ -19,7 +19,7 @@ from taproot.tasks.helpers import (
 )
 
 from ..base import DiffusersTextToImageTask
-from .lora import StableDiffusionXLHostedLoRA
+from .lora import StableDiffusionXLPretrainedLoRA
 from .pretrained import (
     SDXLVAE,
     SDXLUNet,
@@ -61,7 +61,7 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
     default_steps = DEFAULT_NUM_STEPS
     use_compel = True
     model_type = "sdxl"
-    pretrained_lora = StableDiffusionXLHostedLoRA.catalog() # type: ignore[assignment]
+    pretrained_lora = StableDiffusionXLPretrainedLoRA.catalog() # type: ignore[assignment]
 
     """Authorship Metadata"""
     author = "Dustin Podell"

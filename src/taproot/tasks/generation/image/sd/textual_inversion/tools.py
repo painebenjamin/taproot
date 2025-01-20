@@ -1,12 +1,12 @@
-from .base import StableDiffusionHostedTextualInversion
+from .base import StableDiffusionPretrainedTextualInversion
 
 __all__ = [
-    "BadDreamStableDiffusionHostedTextualInversion",
-    "UnrealisticDreamStableDiffusionHostedTextualInversion",
-    "EasyNegativeStableDiffusionHostedTextualInversion"
+    "BadDreamStableDiffusionPretrainedTextualInversion",
+    "UnrealisticDreamStableDiffusionPretrainedTextualInversion",
+    "EasyNegativeStableDiffusionPretrainedTextualInversion"
 ]
 
-class BadDreamStableDiffusionHostedTextualInversion(StableDiffusionHostedTextualInversion):
+class BadDreamStableDiffusionPretrainedTextualInversion(StableDiffusionPretrainedTextualInversion):
     name = "bad-dream"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-textual-inversion-bad-dream.safetensors"
     author = "Lykon"
@@ -19,7 +19,7 @@ class BadDreamStableDiffusionHostedTextualInversion(StableDiffusionHostedTextual
     license_commercial = True
     license_hosting = True
 
-class UnrealisticDreamStableDiffusionHostedTextualInversion(StableDiffusionHostedTextualInversion):
+class UnrealisticDreamStableDiffusionPretrainedTextualInversion(StableDiffusionPretrainedTextualInversion):
     name = "unrealistic-dream"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-textual-inversion-unrealistic-dream.safetensors"
     author_url = "https://civitai.com/user/lykon"
@@ -32,7 +32,7 @@ class UnrealisticDreamStableDiffusionHostedTextualInversion(StableDiffusionHoste
     license_commercial = True
     license_hosting = True
 
-class EasyNegativeStableDiffusionHostedTextualInversion(StableDiffusionHostedTextualInversion):
+class EasyNegativeStableDiffusionPretrainedTextualInversion(StableDiffusionPretrainedTextualInversion):
     name = "easynegative"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-textual-inversion-easynegative.safetensors"
     author_url = "https://civitai.com/user/lykon"

@@ -1,12 +1,12 @@
-from .base import StableDiffusionHostedLoRA
+from .base import StableDiffusionPretrainedLoRA
 
 __all__ = [
-    "AddDetailStableDiffusionHostedLoRA",
-    "NoiseOffsetStableDiffusionHostedLoRA",
-    "DPOStableDiffusionHostedLoRA"
+    "AddDetailStableDiffusionPretrainedLoRA",
+    "NoiseOffsetStableDiffusionPretrainedLoRA",
+    "DPOStableDiffusionPretrainedLoRA"
 ]
 
-class AddDetailStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
+class AddDetailStableDiffusionPretrainedLoRA(StableDiffusionPretrainedLoRA):
     name = "add-detail"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lora-add-detail.fp16.safetensors"
     author = "Lykon"
@@ -19,7 +19,7 @@ class AddDetailStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
     license_commercial = True
     license_hosting = True
 
-class NoiseOffsetStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
+class NoiseOffsetStableDiffusionPretrainedLoRA(StableDiffusionPretrainedLoRA):
     name = "noise-offset"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lora-noise-offset.fp16.safetensors"
     author = "epinikion"
@@ -32,7 +32,7 @@ class NoiseOffsetStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
     license_commercial = True
     license_hosting = False
 
-class DPOStableDiffusionHostedLoRA(StableDiffusionHostedLoRA):
+class DPOStableDiffusionPretrainedLoRA(StableDiffusionPretrainedLoRA):
     name = "dpo"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v1-5-lora-dpo.fp16.safetensors"
     author = "mhdang"

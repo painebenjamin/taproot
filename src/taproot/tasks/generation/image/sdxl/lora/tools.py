@@ -1,11 +1,11 @@
-from .base import StableDiffusionXLHostedLoRA
+from .base import StableDiffusionXLPretrainedLoRA
 
 __all__ = [
-    "NoiseOffsetStableDiffusionXLHostedLoRA",
-    "DPOStableDiffusionXLHostedLoRA"
+    "NoiseOffsetStableDiffusionXLPretrainedLoRA",
+    "DPOStableDiffusionXLPretrainedLoRA"
 ]
 
-class NoiseOffsetStableDiffusionXLHostedLoRA(StableDiffusionXLHostedLoRA):
+class NoiseOffsetStableDiffusionXLPretrainedLoRA(StableDiffusionXLPretrainedLoRA):
     name = "noise-offset"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-xl-lora-noise-offset.fp16.safetensors"
     author = "Stability AI"
@@ -18,7 +18,7 @@ class NoiseOffsetStableDiffusionXLHostedLoRA(StableDiffusionXLHostedLoRA):
     license_commercial = True
     license_hosting = True
 
-class DPOStableDiffusionXLHostedLoRA(StableDiffusionXLHostedLoRA):
+class DPOStableDiffusionXLPretrainedLoRA(StableDiffusionXLPretrainedLoRA):
     name = "dpo"
     url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-xl-lora-dpo.fp16.safetensors"
     author = "mhdang"

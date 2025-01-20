@@ -1,6 +1,7 @@
 from typing import Any, Tuple
 from taproot import Task
 from taproot.util import (
+    get_test_image,
     save_test_image,
     make_grid,
 )
@@ -77,6 +78,27 @@ def test_sd15_controlnet_image_generation() -> None:
     mlsd = run_test("line-detection", "mlsd", "mlsd")
     pose = run_test("pose-detection", "openpose", "pose")
 
+    # QR Code is a bit of an outlier, we handle it manually
+    kwargs["prompt"] = "a modern house facade"
+    kwargs["height"] = 512
+    kwargs["control_scale"] = 1.5
+    kwargs["num_inference_steps"] = 50
+    kwargs["scheduler"] = "dpmsolver_sde_multistep_karras"
+    kwargs.pop("highres_fix_strength")
+    qr_source = get_test_image(subject="qrcode", size="512x512")
+    qr_result = pipe(
+        control_image={"qr": qr_source},
+        **kwargs
+    )
+    save_test_image(qr_result, "sd15_qr_result")
+    qr_i2i_result = pipe(
+        control_image={"qr": qr_source},
+        image=qr_result,
+        strength=0.8,
+        **kwargs
+    )
+    save_test_image(qr_i2i_result, "sd15_qr_i2i_result")
+
     images = [
         (base_image, "base"),
         (canny[0], "canny detect"),
@@ -114,6 +136,10 @@ def test_sd15_controlnet_image_generation() -> None:
         (pose[0], "pose detect"),
         (pose[1], "pose t2i result"),
         (pose[2], "pose i2i result"),
+        (qr_source, "qr"),
+        (qr_source, "qr"),
+        (qr_result, "qr t2i result"),
+        (qr_i2i_result, "qr i2i result"),
     ]
 
     grid = make_grid(

@@ -19,12 +19,13 @@ class OpenCLIPViTHVisionEncoder(PretrainedModelMixin):
     """
     OpenCLIP ViT-H Vision Encoder.
     """
-    model_url = "https://huggingface.co/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors?filename=vision-encoding-clip-vit-h.fp16.safetensors"
+    use_strict = False
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/vision-encoding-openclip-vit-h.fp16.safetensors"
 
     @classmethod
     def get_model_class(cls) -> Type[CLIPVisionModelWithProjection]:
         """
-        Get the model class for the Stable Diffusion XL Text Encoder.
+        :return: The model class for ViT-H Vision Encoder.
         """
         from transformers import CLIPVisionModelWithProjection
         return CLIPVisionModelWithProjection # type: ignore[no-any-return]
@@ -32,7 +33,7 @@ class OpenCLIPViTHVisionEncoder(PretrainedModelMixin):
     @classmethod
     def get_config_class(cls) -> Type[CLIPVisionConfig]:
         """
-        Get the configuration class for the Stable Diffusion XL Vision Encoder.
+        :return: The config class for ViT-H Vision Encoder.
         """
         from transformers import CLIPVisionConfig
         return CLIPVisionConfig # type: ignore[no-any-return]
@@ -40,7 +41,7 @@ class OpenCLIPViTHVisionEncoder(PretrainedModelMixin):
     @classmethod
     def get_default_config(cls) -> Optional[Dict[str, Any]]:
         """
-        Get the default configuration for the Stable Diffusion XL Text Encoder.
+        :return: The default configuration for ViT-H Vision Encoder.
         """
         return {
             "attention_dropout": 0,
@@ -61,17 +62,16 @@ class OpenCLIPViTHVisionEncoder(PretrainedModelMixin):
             "torch_dtype": "float16",
         }
 
-
 class OpenCLIPViTBigGVisionEncoder(PretrainedModelMixin):
     """
     OpenCLIP ViT-BigG Vision Encoder.
     """
-    model_url = "https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/image_encoder/model.safetensors?filename=vision-encoding-clip-vit-big-g.fp16.safetensors"
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/vision-encoding-openclip-vit-big-g.fp16.safetensors"
 
     @classmethod
     def get_model_class(cls) -> Type[CLIPVisionModelWithProjection]:
         """
-        Get the model class for the Stable Diffusion XL Text Encoder.
+        :return: The model class for ViT-BigG Vision Encoder.
         """
         from transformers import CLIPVisionModelWithProjection
         return CLIPVisionModelWithProjection # type: ignore[no-any-return]
@@ -79,7 +79,7 @@ class OpenCLIPViTBigGVisionEncoder(PretrainedModelMixin):
     @classmethod
     def get_config_class(cls) -> Type[CLIPVisionConfig]:
         """
-        Get the configuration class for the Stable Diffusion XL Vision Encoder.
+        :return: The config class for ViT-BigG Vision Encoder.
         """
         from transformers import CLIPVisionConfig
         return CLIPVisionConfig # type: ignore[no-any-return]
@@ -87,7 +87,7 @@ class OpenCLIPViTBigGVisionEncoder(PretrainedModelMixin):
     @classmethod
     def get_default_config(cls) -> Optional[Dict[str, Any]]:
         """
-        Get the default configuration for the Stable Diffusion XL Text Encoder.
+        :return: The default configuration for ViT-BigG Vision Encoder.
         """
         return {
             "add_cross_attention": False,

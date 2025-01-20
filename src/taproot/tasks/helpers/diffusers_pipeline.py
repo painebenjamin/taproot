@@ -25,12 +25,14 @@ from taproot.util import (
     logger,
     maybe_use_tqdm,
     inject_skip_init,
+    iterate_state_dict,
     wrap_module_forward_dtype,
     unwrap_module_forward_dtype,
     SpatioTemporalPrompt,
     EncodedPrompts,
     EncodedPrompt,
     PretrainedLoRA,
+    PretrainedIPAdapter,
     PretrainedTextualInversion,
     PretrainedModelMixin,
 )
@@ -76,9 +78,14 @@ class DiffusersPipelineTask(Task):
 
     pretrained_lora: Optional[Dict[str, Type[PretrainedLoRA]]] = None
     loaded_lora: Optional[List[str]] = None
+
     pretrained_textual_inversion: Optional[Dict[str, Type[PretrainedTextualInversion]]] = None
     loaded_textual_inversion: Optional[List[str]] = None
+
     pretrained_controlnet: Optional[Dict[str, Type[PretrainedModelMixin]]] = None
+
+    pretrained_ip_adapter: Optional[Dict[str, Type[PretrainedIPAdapter]]] = None
+    pretrained_ip_adapter_encoder: Optional[Type[PretrainedModelMixin]] = None
 
     @classmethod
     def get_pretrained_loader(
@@ -99,6 +106,8 @@ class DiffusersPipelineTask(Task):
         )
         if cls.pretrained_controlnet is not None and allow_optional:
             loader.models.update(cls.pretrained_controlnet)
+        if cls.pretrained_ip_adapter_encoder is not None and allow_optional:
+            loader.models.update({"ip_adapter_encoder": cls.pretrained_ip_adapter_encoder})
         return loader
 
     @classmethod
@@ -277,17 +286,20 @@ class DiffusersPipelineTask(Task):
             return self.pretrained_lora[name_or_path].recommended_scale
         return 1.0
 
-    def get_textual_inversion_path(self, name: str) -> str:
+    def get_textual_inversion_path(self, name_or_path: str) -> str:
         """
         Get the textual_inversion model.
         """
+        if os.path.exists(name_or_path):
+            return name_or_path
+
         if self.pretrained_textual_inversion is not None:
-            cls = self.pretrained_textual_inversion[name]
+            cls = self.pretrained_textual_inversion[name_or_path]
             cls_files = cls.get_files(
                 self.model_dir,
                 text_callback=logger.info
             )
-            assert len(cls_files) == 1, f"Expected 1 file for {name}, found {len(cls_files)}"
+            assert len(cls_files) == 1, f"Expected 1 file for {name_or_path}, found {len(cls_files)}"
             return cls_files[0]
         raise ValueError(f"No pretrained textual inversion models available for {type(self).__name__}")
 
@@ -336,6 +348,58 @@ class DiffusersPipelineTask(Task):
         if hasattr(pipeline, "load_textual_inversion"):
             for textual_inversion_name_or_path in textual_inversion:
                 self.load_textual_inversion_weights(textual_inversion_name_or_path, pipeline)
+
+    def get_ip_adapter_path(self, name_or_path: str) -> str:
+        """
+        Get the IP adapter checkpoint.
+        """
+        if os.path.exists(name_or_path):
+            return name_or_path
+
+        if self.pretrained_ip_adapter is not None:
+            cls = self.pretrained_ip_adapter[name_or_path]
+            cls_files = cls.get_files(
+                self.model_dir,
+                text_callback=logger.info
+            )
+            assert len(cls_files) == 1, f"Expected 1 file for {name_or_path}, found {len(cls_files)}"
+            return cls_files[0]
+        raise ValueError(f"No pretrained IP adapter models available for {type(self).__name__}")
+
+    def enable_ip_adapter(
+        self,
+        pipeline: DiffusionPipeline,
+        names: List[str],
+        scales: List[float]
+    ) -> None:
+        """
+        Enable one or more IP adapters.
+        """
+        if hasattr(pipeline, "unload_ip_adapter"):
+            pipeline.unload_ip_adapter()
+
+        if not names:
+            return
+
+        assert len(names) == len(scales), "Number of IP adapter names does not match number of scales."
+
+        # Shortcut loading weights
+        state_dicts: List[Dict[str, Dict[str, torch.Tensor]]] = []
+        for adapter in names:
+            adapter_path = self.get_ip_adapter_path(adapter)
+            adapter_state_dict: Dict[str, Dict[str, torch.Tensor]] = {"image_proj": {}, "ip_adapter": {}}
+            for key, value in iterate_state_dict(adapter_path):
+                if key.startswith("image_proj"):
+                    adapter_state_dict["image_proj"][key.replace("image_proj.", "")] = value
+                elif key.startswith("ip_adapter"):
+                    adapter_state_dict["ip_adapter"][key.replace("ip_adapter.", "")] = value
+            state_dicts.append(adapter_state_dict)
+
+        self.get_denoising_model()._load_ip_adapter_weights(state_dicts)
+        # TODO: FaceID LoRA
+        if hasattr(pipeline, "set_ip_adapter_scale"):
+            logger.debug(f"Setting IP adapter scales for {type(self).__name__}: {scales}.")
+            pipeline.set_ip_adapter_scale(scales)
 
     def get_controlnet(
         self,
@@ -399,8 +463,27 @@ class DiffusersPipelineTask(Task):
         else:
             textual_inversions = []
 
+        ip_adapter = kwargs.get("ip_adapter", None)
+        if ip_adapter is not None:
+            if not isinstance(ip_adapter, list):
+                ip_adapters = [ip_adapter]
+            else:
+                ip_adapters = ip_adapter
+        else:
+            ip_adapters = []
+
+        ip_adapter_scale = kwargs.get("ip_adapter_scale", None)
+        if ip_adapter_scale is not None:
+            if not isinstance(ip_adapter_scale, list):
+                ip_adapter_scales = [ip_adapter_scale]
+            else:
+                ip_adapter_scales = ip_adapter_scale
+        else:
+            ip_adapter_scales = []
+
         self.enable_lora(pipeline, *loras)
         self.enable_textual_inversion(pipeline, *textual_inversions)
+        self.enable_ip_adapter(pipeline, names=ip_adapters, scales=ip_adapter_scales)
 
         vae = self.get_autoencoding_model()
         denoising_model = self.get_denoising_model()
@@ -495,6 +578,21 @@ class DiffusersPipelineTask(Task):
         """
         disable_2d_multidiffusion(self.get_denoising_model())
 
+    def onload_controlnet(self, controlnet: Union[str, Sequence[str]]) -> None:
+        """
+        Onloads a controlnet.
+        """
+        if isinstance(controlnet, (list, tuple)):
+            controlnets = list(controlnet)
+        else:
+            controlnets = [controlnet]
+        if self.pretrained_controlnet is not None:
+            for name in self.pretrained_controlnet:
+                if name in controlnets:
+                    self.pretrained.load_by_name(name)
+                else:
+                    self.pretrained.offload_by_name(name)
+
     def offload_controlnet(self) -> None:
         """
         Offloads any controlnets that are loaded.
@@ -503,6 +601,20 @@ class DiffusersPipelineTask(Task):
             for name in self.pretrained_controlnet:
                 self.pretrained.offload_by_name(name)
 
+    def onload_ip_adapter_encoder(self) -> None:
+        """
+        Onloads the IP adapter encoder.
+        """
+        if self.pretrained_ip_adapter_encoder is not None:
+            self.pretrained.load_by_name("ip_adapter_encoder")
+
+    def offload_ip_adapter_encoder(self) -> None:
+        """
+        Offloads the IP adapter encoder.
+        """
+        if self.pretrained_ip_adapter_encoder is not None:
+            self.pretrained.offload_by_name("ip_adapter_encoder")
+
     def unload_controlnet(self) -> None:
         """
         Unloads any controlnets that are loaded.
@@ -510,6 +622,13 @@ class DiffusersPipelineTask(Task):
         if self.pretrained_controlnet is not None:
             for name in self.pretrained_controlnet:
                 self.pretrained.unload_by_name(name)
+
+    def unload_ip_adapter_encoder(self) -> None:
+        """
+        Unloads the IP adapter encoder.
+        """
+        if self.pretrained_ip_adapter_encoder is not None:
+            self.pretrained.unload_by_name("ip_adapter_encoder")
 
     def get_scheduler(
         self,
@@ -750,6 +869,59 @@ class DiffusersPipelineTask(Task):
             else:
                 kwargs.pop(f"prompt_{i+1}", None)
                 kwargs.pop(f"negative_prompt_{i+1}", None)
+
+    def get_image_projection_layers(self) -> List[torch.nn.Module]:
+        """
+        Get the image projection layers for encoding IP adapter embeddings.
+        """
+        denoising_model = self.get_denoising_model()
+        try:
+            projection_layers = denoising_model.encoder_hid_proj.image_projection_layers
+        except AttributeError:
+            raise ValueError("No image projection layers found in denoising model for IP adapter embedding encoding. Did you enable IP adapter(s) before trying to get embeddings?")
+        return projection_layers # type: ignore[no-any-return]
+
+    def compile_ip_adapter_embeds_into_kwargs(
+        self,
+        kwargs: Dict[str, Any],
+        ip_adapter_image: Dict[IP_ADAPTER_TYPE_LITERAL, torch.Tensor],
+        do_classifier_free_guidance: bool=False,
+        do_perturbed_attention_guidance: bool=False,
+    ) -> None:
+        """
+        Compiles IP adapter embeddings into kwargs.
+        """
+        import torch
+        from diffusers.models.embeddings import ImageProjection
+
+        assert self.pretrained_ip_adapter_encoder is not None, "No pretrained IP adapter encoder available."
+        self.onload_ip_adapter_encoder()
+        image_projection_layers = self.get_image_projection_layers()
+        assert len(image_projection_layers) == len(ip_adapter_image), "Number of IP adapter images does not match number of image projection layers."
+
+        kwargs["ip_adapter_image_embeds"] = []
+
+        for projection_layer, image in zip(image_projection_layers, ip_adapter_image.values()):
+            output_hidden_state = not isinstance(projection_layer, ImageProjection)
+            if output_hidden_state:
+                image_hidden_states = self.pretrained.ip_adapter_encoder(image, output_hidden_states=True).hidden_states[-2].unsqueeze(0)
+                if do_classifier_free_guidance:
+                    image_uncond_states = self.pretrained.ip_adapter_encoder(torch.zeros_like(image), output_hidden_states=True).hidden_states[-2].unsqueeze(0)
+            else:
+                image_hidden_states = self.pretrained.ip_adapter_encoder(image).image_embeds.unsqueeze(0)
+                if do_classifier_free_guidance:
+                    image_uncond_states = self.pretrained.ip_adapter_encoder(torch.zeros_like(image)).image_embeds.unsqueeze(0)
+
+            if do_classifier_free_guidance and do_perturbed_attention_guidance:
+                hidden_states = torch.cat([image_uncond_states, image_hidden_states, image_hidden_states], dim=0)
+            elif do_classifier_free_guidance:
+                hidden_states = torch.cat([image_uncond_states, image_hidden_states], dim=0)
+            elif do_perturbed_attention_guidance:
+                hidden_states = torch.cat([image_hidden_states, image_hidden_states], dim=0)
+            else:
+                hidden_states = image_hidden_states
+
+            kwargs["ip_adapter_image_embeds"].append(hidden_states)
 
     def get_encoded_spatial_prompts(
         self,

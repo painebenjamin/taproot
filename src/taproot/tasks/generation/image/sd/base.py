@@ -8,6 +8,7 @@ from taproot.util import (
 )
 from taproot.constants import *
 from taproot.pretrained import (
+    OpenCLIPViTHVisionEncoder,
     CLIPViTLTextEncoder,
     CLIPViTLTokenizer,
 )
@@ -20,6 +21,7 @@ from taproot.tasks.helpers import (
 from ..base import DiffusersTextToImageTask
 from .lora import StableDiffusionPretrainedLoRA
 from .controlnet import StableDiffusionPretrainedControlNet
+from .ip_adapter import StableDiffusionPretrainedIPAdapter
 from .textual_inversion import StableDiffusionPretrainedTextualInversion
 from .pretrained import (
     StableDiffusionVAE,
@@ -77,6 +79,8 @@ class StableDiffusionBase(DiffusersTextToImageTask):
     default_steps = DEFAULT_NUM_STEPS
     use_compel = True
     model_type = "sd"
+    pretrained_ip_adapter_encoder = OpenCLIPViTHVisionEncoder
+    pretrained_ip_adapter = StableDiffusionPretrainedIPAdapter.catalog() # type: ignore[assignment]
     pretrained_controlnet = StableDiffusionPretrainedControlNet.catalog() # type: ignore[assignment]
     pretrained_lora = StableDiffusionPretrainedLoRA.catalog() # type: ignore[assignment]
     pretrained_textual_inversion = StableDiffusionPretrainedTextualInversion.catalog() # type: ignore[assignment]
@@ -211,9 +215,12 @@ class StableDiffusionBase(DiffusersTextToImageTask):
         latents: Optional[torch.Tensor] = None,
         prompt_embeds: Optional[torch.Tensor] = None,
         negative_prompt_embeds: Optional[torch.Tensor] = None,
-        control_image: Optional[Dict[CONTROLNET_TYPE_LITERAL, ImageType]] = None,
-        #ip_adapter_image: Optional[ImageType] = None,
-        #ip_adapter_image_embeds: Optional[List[torch.Tensor]] = None,
+        control_image: Optional[Dict[CONTROLNET_TYPE_LITERAL, ImageType]]=None,
+        control_scale: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_start: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_end: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        ip_adapter_image: Optional[ImageType] = None,
+        ip_adapter_image_embeds: Optional[List[torch.Tensor]] = None,
         clip_skip: Optional[int] = None,
         seed: SeedType = None,
         strength: Optional[float] = None,
@@ -257,8 +264,11 @@ class StableDiffusionBase(DiffusersTextToImageTask):
                 prompt_embeds=prompt_embeds,
                 negative_prompt_embeds=negative_prompt_embeds,
                 control_image=control_image,
-                #ip_adapter_image=ip_adapter_image,
-                #ip_adapter_image_embeds=ip_adapter_image_embeds,
+                control_scale=control_scale,
+                control_start=control_start,
+                control_end=control_end,
+                ip_adapter_image=ip_adapter_image, # type: ignore[arg-type]
+                ip_adapter_image_embeds=ip_adapter_image_embeds,
                 clip_skip=clip_skip,
                 pag_scale=pag_scale,
                 pag_adaptive_scale=pag_adaptive_scale,

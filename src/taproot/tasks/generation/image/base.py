@@ -6,6 +6,7 @@ from typing import (
     Dict,
     List,
     Optional,
+    Union,
     Type,
     TYPE_CHECKING
 )
@@ -220,10 +221,15 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         image: Optional[ImageType]=None,
         mask_image: Optional[ImageType]=None,
         control_image: Optional[Dict[CONTROLNET_TYPE_LITERAL, ImageType]]=None,
+        control_scale: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_start: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_end: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        ip_adapter_scale: Optional[Union[float, Dict[IP_ADAPTER_TYPE_LITERAL, float]]]=None,
+        ip_adapter_image: Optional[Dict[IP_ADAPTER_TYPE_LITERAL, ImageType]]=None,
         num_inference_steps: Optional[int]=None,
         output_latent: Optional[bool]=False,
         strength: Optional[float]=None,
-        conditioning_strength: Optional[float]=None,
+        controlnet_conditioning_scale: Optional[float]=None,
         pag_scale: Optional[float]=None,
         pag_adaptive_scale: Optional[float]=None,
         height: Optional[int]=None,
@@ -245,19 +251,47 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         Invoke the pipeline.
         """
         import torch
-
+        # We're going to standardize pipeline input to the model itself - first get some details
         autoencoding_model = self.get_autoencoding_model()
         if autoencoding_model is not None:
             dtype = next(autoencoding_model.parameters()).dtype
         else:
             dtype = self.dtype
 
+        # Now standardize all image inputs to tensors
         if image is not None:
             image = to_bchw_tensor(image, num_channels=3).to(dtype=dtype, device=self.device)
             image = scale_tensor(image, round_to_nearest=16).clamp(0., 1.)
         if mask_image is not None:
             mask_image = to_bchw_tensor(mask_image, num_channels=1).to(dtype=dtype, device=self.device)
             mask_image = scale_tensor(mask_image, round_to_nearest=16).clamp(0., 1.)
+        if ip_adapter_image is not None:
+            if self.pretrained_ip_adapter_encoder is None:
+                image_size = (224, 224)
+            else:
+                image_size = (
+                    self.pretrained.ip_adapter_encoder.config.image_size,
+                    self.pretrained.ip_adapter_encoder.config.image_size
+                )
+            ip_adapter_image = {
+                key: scale_tensor(
+                    to_bchw_tensor(value, resize=image_size, num_channels=3).to(dtype=dtype, device=self.device),
+                    round_to_nearest=16
+                ).clamp(0., 1.)
+                for key, value in ip_adapter_image.items()
+            }
+            if ip_adapter_scale is None:
+                ip_adapter_scale = {}
+                for key in ip_adapter_image.keys():
+                    if self.pretrained_ip_adapter is not None and key in self.pretrained_ip_adapter:
+                        scale = self.pretrained_ip_adapter[key].recommended_scale
+                    else:
+                        scale = 1.0
+                    ip_adapter_scale[key] = scale
+            elif not isinstance(ip_adapter_scale, dict):
+                ip_adapter_scale = {
+                    key: ip_adapter_scale for key in ip_adapter_image.keys()
+                }
         if control_image is not None:
             control_image = {
                 key: scale_tensor(
@@ -266,7 +300,20 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 ).clamp(0., 1.)
                 for key, value in control_image.items()
             }
+            if control_scale is not None and isinstance(control_scale, dict):
+                control_scale = [ # type: ignore[assignment]
+                    control_scale.get(key, 1.0) for key in control_image.keys()
+                ]
+            if control_start is not None and isinstance(control_start, dict):
+                control_start = [ # type: ignore[assignment]
+                    control_start.get(key, 0.0) for key in control_image.keys()
+                ]
+            if control_end is not None and isinstance(control_end, dict):
+                control_end = [ # type: ignore[assignment]
+                    control_end.get(key, 1.0) for key in control_image.keys()
+                ]
 
+        # Determine pipeline type
         guidance_scale = kwargs.get("guidance_scale", None)
 
         is_inpaint = image is not None and mask_image is not None
@@ -280,15 +327,26 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             highres_fix_strength is not None and highres_fix_strength > 0.0
         )
 
+        # Gather optional module names
         if is_controlnet:
             controlnet = list(control_image.keys()) # type: ignore[union-attr]
         else:
             controlnet = None
 
+        if ip_adapter_image is not None:
+            ip_adapter = list(ip_adapter_image.keys())
+            ip_scale = list(ip_adapter_scale.values()) # type: ignore[union-attr]
+        else:
+            ip_adapter = None
+            ip_scale = None
+
+        # Get the diffusers pipeline, loading optional modules
         pipeline = self.get_pipeline(
             lora=lora,
             scheduler=scheduler,
             controlnet=controlnet,
+            ip_adapter=ip_adapter,
+            ip_adapter_scale=ip_scale,
             textual_inversion=textual_inversion,
             is_image_to_image=is_image_to_image,
             is_controlnet=is_controlnet,
@@ -296,15 +354,15 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             is_pag=is_pag,
         )
 
-        generator = torch.Generator(device=self.device)
-        generator.manual_seed(get_seed(seed))
-
+        # Based on pipeline type, pass through some arguments
         if is_inpaint and is_controlnet:
             kwargs["image"] = image
             kwargs["mask_image"] = mask_image
             kwargs["control_image"] = control_image
             kwargs["strength"] = strength or 1.0
-            kwargs["conditioning_strength"] = conditioning_strength or 1.0
+            kwargs["controlnet_conditioning_scale"] = control_scale or 1.0
+            kwargs["control_guidance_start"] = control_start or 0.0
+            kwargs["control_guidance_end"] = control_end or 1.0
         elif is_inpaint:
             kwargs["image"] = image
             kwargs["mask_image"] = mask_image
@@ -312,14 +370,18 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         elif is_image_to_image and is_controlnet:
             kwargs["image"] = image
             kwargs["control_image"] = [control_image[key] for key in controlnet] # type: ignore[index,union-attr]
-            kwargs["conditioning_strength"] = conditioning_strength or 1.0
+            kwargs["controlnet_conditioning_scale"] = control_scale or 1.0
+            kwargs["control_guidance_start"] = control_start or 0.0
+            kwargs["control_guidance_end"] = control_end or 1.0
             kwargs["strength"] = strength or 0.6
         elif is_image_to_image:
             kwargs["image"] = image
             kwargs["strength"] = strength or 0.6
         elif is_controlnet:
             kwargs["image"] = [control_image[key] for key in controlnet] # type: ignore[index,union-attr]
-            kwargs["conditioning_strength"] = conditioning_strength or 1.0
+            kwargs["controlnet_conditioning_scale"] = control_scale or 1.0
+            kwargs["control_guidance_start"] = control_start or 0.0
+            kwargs["control_guidance_end"] = control_end or 1.0
 
         if is_pag:
             kwargs["pag_scale"] = pag_scale
@@ -332,6 +394,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             kwargs["width"] = image.shape[-1] # type: ignore[union-attr]
             kwargs["height"] = image.shape[-2] # type: ignore[union-attr]
 
+        # We use AYS (Align Your Steps) for SD 1.5 and SDXL-based pipelines
         if num_inference_steps is None:
             num_inference_steps = self.default_steps
         if timesteps is None and self.model_type is not None:
@@ -343,6 +406,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         if timesteps is not None:
             kwargs["timesteps"] = timesteps
 
+        # Introspect the pipeline to determine what arguments it accepts
         invoke_signature = inspect.signature(pipeline.__call__) # type: ignore[operator]
         accepts_sequence_length = "max_sequence_length" in invoke_signature.parameters
         accepts_clip_skip = "clip_skip" in invoke_signature.parameters
@@ -360,12 +424,22 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         ignored_kwargs = set(kwargs.keys()) - set(invoke_signature.parameters.keys())
         if ignored_kwargs:
             logger.warning(f"Ignoring unknown kwargs: {ignored_kwargs}")
-            for key in ignored_kwargs:
+            for key in ignored_kwargs: # type: ignore[assignment]
                 del kwargs[key]
 
         if accepts_negative_prompt and kwargs.get("negative_prompt", None) is None:
             kwargs["negative_prompt"] = self.default_negative_prompt
 
+        # If there are IP adapter images, we computen their embeddings here
+        if ip_adapter_image is not None:
+            self.compile_ip_adapter_embeds_into_kwargs(
+                kwargs,
+                ip_adapter_image, # type: ignore[arg-type]
+                do_classifier_free_guidance=is_cfg,
+                do_perturbed_attention_guidance=is_pag,
+            )
+
+        # If we're using compel, we need to compile the prompts before they go to the pipe
         if self.use_compel:
             self.compile_prompts_into_kwargs(
                 pipeline,
@@ -384,6 +458,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             elif max_sequence_length is not None:
                 logger.warning("Pipeline does not accept max_sequence_length, ignoring.")
 
+        # We also will wrap and encode the forward for multidiffusion, which is hacked on top of the unet/transformer forward
         if use_multidiffusion and self.use_multidiffusion:
             spatial_prompts = self.get_spatial_prompts(spatial_prompts) if spatial_prompts is not None else None
             encoded_prompts = self.get_encoded_spatial_prompts(
@@ -403,6 +478,10 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 tile_stride=None if multidiffusion_tile_stride is None else int(multidiffusion_tile_stride // 8),
             )
 
+        # Finally, we invoke the pipeline
+        generator = torch.Generator(device=self.device)
+        generator.manual_seed(get_seed(seed))
+
         logger.debug(f"Invoke pipeline with kwargs: {kwargs}")
 
         try:
@@ -412,7 +491,9 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 **kwargs
             ).images
 
+            # If we're doing high-resolution fix, we need to run the pipeline again
             if use_high_res_fix:
+                # Remove images from kwargs
                 for ignored_kwarg in ["image", "mask_image", "control_image", "latents", "width", "height", "strength"]:
                     kwargs.pop(ignored_kwarg, None)
                 if accepts_output_type and not output_latent:
@@ -420,6 +501,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 elif accepts_output_format and not output_latent:
                     kwargs["output_format"] = "pt"
 
+                # Assemble a new (image-to-image) pipeline from modules
                 pipeline = self.get_pipeline(
                     lora=lora,
                     textual_inversion=textual_inversion,
@@ -460,4 +542,5 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             return result # type: ignore[no-any-return]
         finally:
             self.unload_controlnet()
+            self.offload_ip_adapter_encoder()
             self.disable_multidiffusion()

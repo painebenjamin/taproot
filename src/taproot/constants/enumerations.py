@@ -4,6 +4,7 @@ __all__ = [
     "TEST_RESTRICTED_MODULES",
     "KNOWN_GPU_MODEL_FILE_EXTENSIONS",
     "CONTROLNET_TYPE_LITERAL",
+    "IP_ADAPTER_TYPE_LITERAL",
     "DIFFUSERS_SCHEDULER_LITERAL",
     "DIFFUSERS_MODEL_TYPE_LITERAL",
     "MULTIDIFFUSION_MASK_TYPE_LITERAL",
@@ -40,6 +41,10 @@ CONTROLNET_TYPE_LITERAL = Literal[
     "anime-line-art", "canny", "depth",
     "hed", "line-art", "normal", "pose",
     "qr", "scribble", "soft-edge", "tile"
+]
+IP_ADAPTER_TYPE_LITERAL = Literal[
+    "base", "plus", "light", "plus-face", "full-face",
+    "face-id", "face-id-plus", "face-id-portrait"
 ]
 DIFFUSERS_SCHEDULER_LITERAL = Literal[
     "ddim", "ddpm", "ddpm_wuerstchen", "deis_multistep",

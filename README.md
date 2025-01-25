@@ -39,16 +39,29 @@ There are more than 170 models available across 18 task categories. See the [Tas
 
 ### Roadmap
 
-1. IP Adapter Models for Diffusers Image Generation Pipelines
-2. ControlNet Models for Diffusers Image Generation Pipelines
-3. Additional quantization backends for large models
-    - Currently BitsandBytes (Int8/NF4) and GGUF (through llama.cpp) are supported with pre-quantized checkpoints available.
-    - FP8 support through Optimum-Quanto, TorchAO and custom kernels is in development.
-4. Improved multi-GPU support
+Items with ~strikethrough~ are complete in the main branch.
+
+1. Regular IP Adapter Models for Diffusers Image Generation Pipelines
+    - ~Stable Diffusion 1.5~
+    - ~Stable Diffusion XL~
+    - Stable Diffusion 3.5
+    - FLUX
+2. Face ID IP Adapter Models for Diffusers Image Generation Pipelines
+    - Stable Diffusion 1.5
+    - Stable Diffusion XL
+3. ControlNet Models for Diffusers Image Generation Pipelines
+    - ~Stable Diffusion 1.5~
+    - ~Stable Diffusion XL~
+    - Stable Diffusion 3.5
+    - FLUX
+4. Additional quantization backends for large models
+    - Optimum-Quanto Support with FP8
+    - TorchAO Support with FP8
+5. Improved multi-GPU support
     - This is currently supported through manual configuration, but usability can be improved.
-5. Additional annotators/detectors for image and video
+6. Additional annotators/detectors for image and video
     - E.g. Marigold, SAM2
-6. Additional audio generation models
+7. Additional audio generation models
     - E.g. Stable Audio, AudioLDM, MusicGen
 
 # Installation

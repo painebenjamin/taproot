@@ -221,6 +221,7 @@ class StableDiffusionBase(DiffusersTextToImageTask):
         control_end: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
         ip_adapter_image: Optional[ImageType] = None,
         ip_adapter_image_embeds: Optional[List[torch.Tensor]] = None,
+        ip_adapter_scale: Optional[Union[float, Dict[IP_ADAPTER_TYPE_LITERAL, float]]]=None,
         clip_skip: Optional[int] = None,
         seed: SeedType = None,
         strength: Optional[float] = None,
@@ -269,6 +270,7 @@ class StableDiffusionBase(DiffusersTextToImageTask):
                 control_end=control_end,
                 ip_adapter_image=ip_adapter_image, # type: ignore[arg-type]
                 ip_adapter_image_embeds=ip_adapter_image_embeds,
+                ip_adapter_scale=ip_adapter_scale,
                 clip_skip=clip_skip,
                 pag_scale=pag_scale,
                 pag_adaptive_scale=pag_adaptive_scale,

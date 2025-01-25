@@ -12,6 +12,7 @@ from taproot.pretrained import (
     CLIPViTLTokenizer,
     OpenCLIPViTGTextEncoder,
     OpenCLIPViTGTokenizer,
+    OpenCLIPViTHVisionEncoder,
 )
 from taproot.tasks.helpers import (
     LoRAInputType,
@@ -20,6 +21,8 @@ from taproot.tasks.helpers import (
 
 from ..base import DiffusersTextToImageTask
 from .lora import StableDiffusionXLPretrainedLoRA
+from .controlnet import StableDiffusionXLPretrainedControlNet
+from .ip_adapter import StableDiffusionXLPretrainedIPAdapter
 from .pretrained import (
     SDXLVAE,
     SDXLUNet,
@@ -61,6 +64,9 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
     default_steps = DEFAULT_NUM_STEPS
     use_compel = True
     model_type = "sdxl"
+    pretrained_ip_adapter_encoder = OpenCLIPViTHVisionEncoder
+    pretrained_ip_adapter = StableDiffusionXLPretrainedIPAdapter.catalog() # type: ignore[assignment]
+    pretrained_controlnet = StableDiffusionXLPretrainedControlNet.catalog() # type: ignore[assignment]
     pretrained_lora = StableDiffusionXLPretrainedLoRA.catalog() # type: ignore[assignment]
 
     """Authorship Metadata"""
@@ -198,7 +204,6 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
         negative_prompt_2: Optional[Union[str, List[str]]] = None,
         image: Optional[ImageType] = None,
         mask_image: Optional[ImageType] = None,
-        #control_image: Optional[Dict[CONTROLNET_TYPE_LITERAL, ImageType]] = None,
         guidance_scale: float = 5.0,
         guidance_rescale: float = 0.0,
         num_inference_steps: int = DEFAULT_NUM_STEPS,
@@ -215,8 +220,13 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
         negative_prompt_embeds: Optional[torch.Tensor] = None,
         pooled_prompt_embeds: Optional[torch.Tensor] = None,
         negative_pooled_prompt_embeds: Optional[torch.Tensor] = None,
-        #ip_adapter_image: Optional[ImageType] = None,
-        #ip_adapter_image_embeds: Optional[List[torch.Tensor]] = None,
+        control_image: Optional[Dict[CONTROLNET_TYPE_LITERAL, ImageType]]=None,
+        control_scale: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_start: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        control_end: Optional[Union[float, Dict[CONTROLNET_TYPE_LITERAL, float]]]=None,
+        ip_adapter_image: Optional[ImageType] = None,
+        ip_adapter_image_embeds: Optional[List[torch.Tensor]] = None,
+        ip_adapter_scale: Optional[Union[float, Dict[IP_ADAPTER_TYPE_LITERAL, float]]]=None,
         clip_skip: Optional[int] = None,
         seed: SeedType = None,
         pag_scale: Optional[float] = None,
@@ -239,7 +249,6 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
             results = self.invoke_pipeline(
                 image=image,
                 mask_image=mask_image,
-                #control_image=control_image,
                 prompt=prompt,
                 prompt_2=prompt_2,
                 negative_prompt=negative_prompt,
@@ -263,8 +272,13 @@ class StableDiffusionXLBase(DiffusersTextToImageTask):
                 negative_prompt_embeds=negative_prompt_embeds,
                 pooled_prompt_embeds=pooled_prompt_embeds,
                 negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-                #ip_adapter_image=ip_adapter_image,
-                #ip_adapter_image_embeds=ip_adapter_image_embeds,
+                control_image=control_image,
+                control_scale=control_scale,
+                control_start=control_start,
+                control_end=control_end,
+                ip_adapter_image=ip_adapter_image, # type: ignore[arg-type]
+                ip_adapter_image_embeds=ip_adapter_image_embeds,
+                ip_adapter_scale=ip_adapter_scale,
                 clip_skip=clip_skip,
                 output_latent=output_format == "latent",
                 highres_fix_factor=highres_fix_factor,

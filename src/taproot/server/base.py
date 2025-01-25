@@ -1340,7 +1340,7 @@ class Server(Encryption):
         self,
         timeout: Optional[float]=0.1,
         timeout_growth: Optional[float]=0.5,
-        retries: int=3,
+        retries: int=15,
     ) -> None:
         """
         Assert that the server is running and can be connected to.

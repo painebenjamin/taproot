@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from typing import (
     Any,
     Dict,
@@ -12,6 +13,7 @@ from typing import (
 )
 from taproot.util import (
     get_aligned_timesteps_for_scheduler,
+    get_metadata,
     get_seed,
     logger,
     scale_tensor,
@@ -39,9 +41,9 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
     These can be pretty varied, so a number of hooks are provided to allow for
     customization of the pipeline and the model handling.
     """
+    default_steps: int = 25
     use_compel: bool = True
     use_multidiffusion: bool = True
-    default_steps: int = 25
 
     @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
@@ -358,7 +360,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         if is_inpaint and is_controlnet:
             kwargs["image"] = image
             kwargs["mask_image"] = mask_image
-            kwargs["control_image"] = control_image
+            kwargs["control_image"] = [control_image[key] for key in controlnet] # type: ignore[index,union-attr]
             kwargs["strength"] = strength or 1.0
             kwargs["controlnet_conditioning_scale"] = control_scale or 1.0
             kwargs["control_guidance_start"] = control_start or 0.0
@@ -393,6 +395,17 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         else:
             kwargs["width"] = image.shape[-1] # type: ignore[union-attr]
             kwargs["height"] = image.shape[-2] # type: ignore[union-attr]
+
+        if is_controlnet and len(controlnet) == 1: # type: ignore[arg-type]
+            control_image_key = "control_image" if is_image_to_image else "image"
+            # The signature for controlnet and multicontrolnet is different
+            for control_key in [control_image_key, "controlnet_conditioning_scale", "control_guidance_start", "control_guidance_end"]:
+                if control_key not in kwargs:
+                    continue
+                elif isinstance(kwargs[control_key], (list, tuple)):
+                    kwargs[control_key] = kwargs[control_key][0]
+                elif isinstance(kwargs[control_key], dict):
+                    kwargs[control_key] = kwargs[control_key][controlnet[0]] # type: ignore[index]
 
         # We use AYS (Align Your Steps) for SD 1.5 and SDXL-based pipelines
         if num_inference_steps is None:
@@ -482,7 +495,13 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         generator = torch.Generator(device=self.device)
         generator.manual_seed(get_seed(seed))
 
-        logger.debug(f"Invoke pipeline with kwargs: {kwargs}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Invoke pipeline with kwargs:")
+            for k, datum in kwargs.items():
+                if isinstance(datum, torch.Tensor):
+                    logger.debug(f"{k}: {datum.shape} {datum.dtype}")
+                else:
+                    logger.debug(f"{k}: {datum}")
 
         try:
             result = pipeline( # type: ignore[operator]
@@ -506,6 +525,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                     lora=lora,
                     textual_inversion=textual_inversion,
                     scheduler=scheduler,
+                    enable_encode_tiling=True,
                     is_image_to_image=True,
                     is_controlnet=False,
                     is_inpaint=False,

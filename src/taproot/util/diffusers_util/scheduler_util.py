@@ -33,6 +33,8 @@ def get_aligned_timesteps_for_scheduler(
     """
     Get the aligned timesteps for the scheduler.
     """
+    if "lcm" in scheduler.__class__.__name__.lower():
+        return None # Don't override latent consistency model timesteps
     if not scheduler_accepts_timesteps(scheduler):
         return None
     elif hasattr(scheduler, "config") and getattr(scheduler.config, "use_karras_sigmas", False):

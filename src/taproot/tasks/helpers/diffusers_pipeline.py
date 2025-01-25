@@ -74,18 +74,25 @@ class DiffusersPipelineTask(Task):
     autoencoding_model_name: Optional[str] = None
     denoising_model_name: Optional[str] = None
     pag_applied_layers: Optional[List[str]] = None
-    default_negative_prompt: Optional[str] = "lowres, blurry, text, error, cropped, worst quality, low quality, jpeg artifacts, ugly, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, username, watermark, signature"
+    default_scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL] = None
+    default_negative_prompt: Optional[str] = "lowres, blurry, text, error, cropped, worst quality, low quality, jpeg artifacts, watermark, signature"
+    model_prompt: Optional[str] = None
+    model_negative_prompt: Optional[str] = None
 
+    """Configurable pretrained models"""
     pretrained_lora: Optional[Dict[str, Type[PretrainedLoRA]]] = None
-    loaded_lora: Optional[List[str]] = None
-
     pretrained_textual_inversion: Optional[Dict[str, Type[PretrainedTextualInversion]]] = None
-    loaded_textual_inversion: Optional[List[str]] = None
-
     pretrained_controlnet: Optional[Dict[str, Type[PretrainedModelMixin]]] = None
-
     pretrained_ip_adapter: Optional[Dict[str, Type[PretrainedIPAdapter]]] = None
     pretrained_ip_adapter_encoder: Optional[Type[PretrainedModelMixin]] = None
+
+    """Static model modifications"""
+    static_lora: Optional[LoRAInputType] = None
+    static_textual_inversion: Optional[TextualInversionInputType] = None
+
+    """Private state variables"""
+    loaded_lora: Optional[List[str]] = None
+    loaded_textual_inversion: Optional[List[str]] = None
 
     @classmethod
     def get_pretrained_loader(
@@ -439,7 +446,7 @@ class DiffusersPipelineTask(Task):
             pipeline_modules["controlnet"] = self.get_controlnet(controlnet_names) # type: ignore[assignment]
 
         pipeline_modules["scheduler"] = self.get_scheduler( # type: ignore[assignment]
-            scheduler_name=kwargs.get("scheduler", None),
+            scheduler_name=kwargs.get("scheduler", self.default_scheduler),
             scheduler=pipeline_modules.get("scheduler", None), # type: ignore[arg-type]
         )
 
@@ -481,8 +488,20 @@ class DiffusersPipelineTask(Task):
         else:
             ip_adapter_scales = []
 
-        self.enable_lora(pipeline, *loras)
-        self.enable_textual_inversion(pipeline, *textual_inversions)
+        if self.static_lora is None:
+            self.enable_lora(pipeline, *loras)
+        elif not getattr(self, "_static_lora_loaded", False):
+            # This only happens once, at runtime
+            self.enable_lora(pipeline, *self.static_lora)
+            self._static_lora_loaded = True
+
+        if self.static_textual_inversion is None:
+            self.enable_textual_inversion(pipeline, *textual_inversions)
+        elif not getattr(self, "_static_textual_inversion_loaded", False):
+            # This only happens once, at runtime
+            self.enable_textual_inversion(pipeline, *self.static_textual_inversion)
+            self._static_textual_inversion_loaded = True
+
         self.enable_ip_adapter(pipeline, names=ip_adapters, scales=ip_adapter_scales)
 
         vae = self.get_autoencoding_model()
@@ -497,25 +516,25 @@ class DiffusersPipelineTask(Task):
             else:
                 unwrap_module_forward_dtype(denoising_model)
 
-        if self.enable_encode_tiling:
+        if self.enable_encode_tiling or kwargs.get("enable_encode_tiling", False):
             if vae is None:
                 logger.warning(f"No VAE found for {type(self).__name__}, cannot enable tiling.")
             else:
                 logger.debug(f"Enabling VAE tiling for {type(self).__name__}.")
                 vae.enable_tiling()
-        if self.enable_encode_slicing:
+        if self.enable_encode_slicing or kwargs.get("enable_encode_slicing", False):
             if vae is None:
                 logger.warning(f"No VAE found for {type(self).__name__}, cannot enable slicing.")
             else:
                 logger.debug(f"Enabling VAE slicing for {type(self).__name__}.")
                 vae.enable_slicing()
-        if self.enable_model_offload:
+        if self.enable_model_offload or kwargs.get("enable_model_offload", False):
             if hasattr(pipeline, "enable_model_cpu_offload"):
                 logger.debug(f"Enabling model CPU offload for {type(self).__name__}.")
                 pipeline.enable_model_cpu_offload()
             else:
                 logger.warning(f"Model CPU offload not supported for {type(self).__name__}.")
-        elif self.enable_sequential_offload:
+        elif self.enable_sequential_offload or kwargs.get("enable_sequential_offload", False):
             if hasattr(pipeline, "enable_sequential_cpu_offload"):
                 logger.debug(f"Enabling sequential CPU offload for {type(self).__name__}.")
                 pipeline.enable_sequential_cpu_offload()
@@ -644,11 +663,12 @@ class DiffusersPipelineTask(Task):
             return scheduler
         raise ValueError("No scheduler provided, and no default available. Add a pretrained scheduler to your task configuration.")
 
-    def get_prompts_from_kwargs(
+    def get_prompt_values_from_kwargs(
         self,
-        key_text: str="prompt",
+        key_text: str,
+        model_prompt: Optional[str]=None,
         **kwargs: Any
-    ) -> List[str]:
+    ) -> List[List[str]]:
         """
         Get prompts from kwargs.
         """
@@ -658,25 +678,42 @@ class DiffusersPipelineTask(Task):
                 key_parts = key[len(key_text)+1:].split("_")
                 if len(key_parts) == 1:
                     prompt_index = int(key_parts[0]) - 1 if key_parts[0] else 0
-                    prompts[prompt_index] = value
+                    prompts[prompt_index] = value if isinstance(value, list) else [value]
+
+        if model_prompt is not None:
+            for prompt_key in prompts:
+                prompts[prompt_key] = [
+                    f"{prompt}, {model_prompt}"
+                    for prompt in prompts[prompt_key]
+                ]
 
         return [prompts[i] for i in sorted(prompts.keys())]
 
-    def get_negative_prompts_from_kwargs(
-        self,
-        key_text: str="negative_prompt",
-        **kwargs: Any
-    ) -> List[str]:
+    def get_prompts_from_kwargs(self, **kwargs: Any) -> List[List[str]]:
+        """
+        Get prompts from kwargs.
+        """
+        return self.get_prompt_values_from_kwargs(
+            "prompt",
+            model_prompt=self.model_prompt,
+            **kwargs
+        )
+
+    def get_negative_prompts_from_kwargs(self, **kwargs: Any) -> List[List[str]]:
         """
         Get negative prompts from kwargs.
         """
-        return self.get_prompts_from_kwargs(key_text=key_text, **kwargs)
+        return self.get_prompt_values_from_kwargs(
+            "negative_prompt",
+            model_prompt=self.model_negative_prompt,
+            **kwargs
+        )
 
     def get_compiled_prompt_embeds(
         self,
         pipeline: DiffusionPipeline,
-        prompts: List[str],
-        negative_prompts: Optional[List[str]]=None,
+        prompts: List[List[str]],
+        negative_prompts: Optional[List[List[str]]]=None,
         clip_skip: Optional[int]=None,
         max_sequence_length: Optional[int]=None,
     ) -> Optional[
@@ -693,8 +730,12 @@ class DiffusersPipelineTask(Task):
         import torch
 
         num_prompts = len(prompts)
+
         num_negative_prompts = 0 if negative_prompts is None else len(negative_prompts)
         num_text_encoders = 0
+
+        num_prompts_per_encoder = max(len(prompt) for prompt in prompts)
+        num_prompts_per_encoder = max(num_prompts_per_encoder, max(len(prompt) for prompt in (negative_prompts or [])))
 
         if getattr(pipeline, "text_encoder_3", None) is not None:
             num_text_encoders = 3
@@ -706,7 +747,7 @@ class DiffusersPipelineTask(Task):
         if num_text_encoders == 0:
             logger.warning("No text encoders found in pipeline - compel will not be applied.")
             return None
-        elif num_prompts == 0:
+        elif num_prompts == 0 or num_prompts_per_encoder == 0:
             logger.warning("No prompts found - compel will not be applied.")
             return None
 
@@ -730,47 +771,67 @@ class DiffusersPipelineTask(Task):
                 logger.debug(f"Moving offloaded text encoder {i+1} to {self.device} with dtype {self.dtype} for compel.")
                 text_encoders[i].to(self.device, dtype=self.dtype)
 
-            prompt = prompts[i] if num_prompts > i else prompts[-1]
-            encoded = encode_prompt_for_model(
-                model_type=self.model_type, # type: ignore[arg-type]
-                prompt=prompt,
-                tokenizer=tokenizers[i],
-                text_encoder=text_encoders[i],
-                max_sequence_length=max_sequence_length,
-                clip_skip=clip_skip,
-                device="cpu"
-            )
+            encoder_prompt_embeds = []
+            encoder_pooled_prompt_embeds = []
+            encoder_negative_prompt_embeds = []
+            encoder_negative_pooled_prompt_embeds = []
 
-            if isinstance(encoded, tuple):
-                prompt_embeds, pooled_prompt_embeds = encoded
-            else:
-                prompt_embeds = encoded
-                pooled_prompt_embeds = None
+            prompt_list = prompts[i] if num_prompts > i else prompts[-1]
 
-            encoded_prompt_embeds.append(prompt_embeds)
-            if pooled_prompt_embeds is not None:
-                encoded_pooled_prompt_embeds.append(pooled_prompt_embeds)
-
-            if num_negative_prompts > 0:
-                negative_prompt = negative_prompts[i] if num_negative_prompts > i else negative_prompts[-1] # type: ignore[index]
+            for j in range(num_prompts_per_encoder):
+                prompt = prompt_list[j] if len(prompt_list) > j else prompt_list[-1]
                 encoded = encode_prompt_for_model(
                     model_type=self.model_type, # type: ignore[arg-type]
-                    prompt=negative_prompt,
+                    prompt=prompt,
                     tokenizer=tokenizers[i],
                     text_encoder=text_encoders[i],
-                    clip_skip=clip_skip,
                     max_sequence_length=max_sequence_length,
+                    clip_skip=clip_skip,
                     device="cpu"
                 )
-                if isinstance(encoded, tuple):
-                    negative_prompt_embeds, negative_pooled_prompt_embeds = encoded
-                else:
-                    negative_prompt_embeds = encoded
-                    negative_pooled_prompt_embeds = None
 
-                encoded_negative_prompt_embeds.append(negative_prompt_embeds)
-                if negative_pooled_prompt_embeds is not None:
-                    encoded_negative_pooled_prompt_embeds.append(negative_pooled_prompt_embeds)
+                if isinstance(encoded, tuple):
+                    prompt_embeds, pooled_prompt_embeds = encoded
+                else:
+                    prompt_embeds = encoded
+                    pooled_prompt_embeds = None
+
+                encoder_prompt_embeds.append(prompt_embeds)
+                if pooled_prompt_embeds is not None:
+                    encoder_pooled_prompt_embeds.append(pooled_prompt_embeds)
+
+            encoded_prompt_embeds.append(torch.cat(encoder_prompt_embeds, dim=0)) # (N, S, D)
+            if encoder_pooled_prompt_embeds:
+                encoded_pooled_prompt_embeds.append(torch.cat(encoder_pooled_prompt_embeds, dim=0)) # (N, D)
+
+            if num_negative_prompts > 0:
+                negative_prompt_list = negative_prompts[i] if num_negative_prompts > i else negative_prompts[-1] # type: ignore[index]
+
+                for j in range(num_prompts_per_encoder):
+                    negative_prompt = negative_prompt_list[j] if len(negative_prompt_list) > j else negative_prompt_list[-1]
+                    encoded = encode_prompt_for_model(
+                        model_type=self.model_type, # type: ignore[arg-type]
+                        prompt=negative_prompt,
+                        tokenizer=tokenizers[i],
+                        text_encoder=text_encoders[i],
+                        clip_skip=clip_skip,
+                        max_sequence_length=max_sequence_length,
+                        device="cpu"
+                    )
+
+                    if isinstance(encoded, tuple):
+                        negative_prompt_embeds, negative_pooled_prompt_embeds = encoded
+                    else:
+                        negative_prompt_embeds = encoded
+                        negative_pooled_prompt_embeds = None
+
+                    encoder_negative_prompt_embeds.append(negative_prompt_embeds)
+                    if negative_pooled_prompt_embeds is not None:
+                        encoder_negative_pooled_prompt_embeds.append(negative_pooled_prompt_embeds)
+
+                encoded_negative_prompt_embeds.append(torch.cat(encoder_negative_prompt_embeds, dim=0)) # (N, S, D)
+                if encoder_negative_pooled_prompt_embeds:
+                    encoded_negative_pooled_prompt_embeds.append(torch.cat(encoder_negative_pooled_prompt_embeds, dim=0))
 
             if is_offloaded:
                 logger.debug(f"Returning offloaded text encoder {i+1} to CPU.")

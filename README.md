@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/github/forks/painebenjamin/taproot?style=social" alt="forks - taproot"><br />
     <a href="https://github.com/painebenjamin/taproot/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache-234b0e" alt="License"></a>
     <a href="https://pypi.org/project/taproot"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/taproot?color=234b0e"></a>
-    <a href="https://pypistats.org/packages/taproot"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dd/taproot?logo=python&logoColor=white&color=234b0e"></a>
+    <a href="https://pypistats.org/packages/taproot"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/taproot?logo=python&logoColor=white&color=234b0e"></a>
 </p>
 
 # About

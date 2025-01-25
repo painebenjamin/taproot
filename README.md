@@ -31,7 +31,7 @@ Taproot is also **really, *really* fast** with latency as low as **50 microsecon
 
 Two encryption methods are also supported:
 1. `tcps` uses raw `tcp` socket communication with bidirectional AES-NI encryption, configured with a key on server and client.
-2. `wss` uses OpenSSL to serve standard TLS connections, configured with a key, certificate and optionally chain.
+2. `wss` and `https` use OpenSSL to serve standard TLS connections, configured with a key, certificate and optionally chain.
 
 ## Available Models
 

@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/github/forks/painebenjamin/taproot?style=social" alt="forks - taproot"><br />
     <a href="https://github.com/painebenjamin/taproot/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache-234b0e" alt="License"></a>
     <a href="https://pypi.org/project/taproot"><img alt="PyPI - Version" src="https://img.shields.io/pypi/v/taproot?color=234b0e"></a>
-    <a href="https://pypistats.org/packages/taproot"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dd/taproot?logo=python&logoColor=white&color=234b0e"></a>
+    <a href="https://pypistats.org/packages/taproot"><img alt="PyPI - Downloads" src="https://img.shields.io/pypi/dm/taproot?logo=python&logoColor=white&color=234b0e"></a>
 </p>
 
 # About
@@ -31,7 +31,7 @@ Taproot is also **really, *really* fast** with latency as low as **50 microsecon
 
 Two encryption methods are also supported:
 1. `tcps` uses raw `tcp` socket communication with bidirectional AES-NI encryption, configured with a key on server and client.
-2. `wss` uses OpenSSL to serve standard TLS connections, configured with a key, certificate and optionally chain.
+2. `wss` and `https` use OpenSSL to serve standard TLS connections, configured with a key, certificate and optionally chain.
 
 ## Available Models
 
@@ -39,16 +39,29 @@ There are more than 170 models available across 18 task categories. See the [Tas
 
 ### Roadmap
 
-1. IP Adapter Models for Diffusers Image Generation Pipelines
-2. ControlNet Models for Diffusers Image Generation Pipelines
-3. Additional quantization backends for large models
-    - Currently BitsandBytes (Int8/NF4) and GGUF (through llama.cpp) are supported with pre-quantized checkpoints available.
-    - FP8 support through Optimum-Quanto, TorchAO and custom kernels is in development.
-4. Improved multi-GPU support
+Items with ~strikethrough~ are complete in the main branch.
+
+1. Regular IP Adapter Models for Diffusers Image Generation Pipelines
+    - ~Stable Diffusion 1.5~
+    - ~Stable Diffusion XL~
+    - Stable Diffusion 3.5
+    - FLUX
+2. Face ID IP Adapter Models for Diffusers Image Generation Pipelines
+    - Stable Diffusion 1.5
+    - Stable Diffusion XL
+3. ControlNet Models for Diffusers Image Generation Pipelines
+    - ~Stable Diffusion 1.5~
+    - ~Stable Diffusion XL~
+    - Stable Diffusion 3.5
+    - FLUX
+4. Additional quantization backends for large models
+    - Optimum-Quanto Support with FP8
+    - TorchAO Support with FP8
+5. Improved multi-GPU support
     - This is currently supported through manual configuration, but usability can be improved.
-5. Additional annotators/detectors for image and video
+6. Additional annotators/detectors for image and video
     - E.g. Marigold, SAM2
-6. Additional audio generation models
+7. Additional audio generation models
     - E.g. Stable Audio, AudioLDM, MusicGen
 
 # Installation

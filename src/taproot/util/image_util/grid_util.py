@@ -12,8 +12,9 @@ from typing import (
 
 from dataclasses import dataclass
 
-from taproot.constants import *
-from taproot.util.image_util import fit_image, to_pil_array
+from ...constants import *
+from .normalization_util import to_pil_array
+from .scale_util import fit_image
 
 if TYPE_CHECKING:
     from taproot.hinting import ImageType
@@ -166,8 +167,8 @@ class GridMaker:
         for i, (images, caption) in enumerate(image_captions): # type: ignore[assignment]
             # Fit the image to the grid size
             image_width, image_height = images[0].size # type: ignore[union-attr,misc]
-            images = fit_image( # type: ignore[assignment]
-                images, # type: ignore[arg-type]
+            images = fit_image( # type: ignore[call-overload]
+                images,
                 width=self.image_width,
                 height=self.image_height,
                 fit=self.image_fit,

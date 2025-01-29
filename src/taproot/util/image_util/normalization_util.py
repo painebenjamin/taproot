@@ -2,48 +2,35 @@ from __future__ import annotations
 
 import io
 import os
-import math
 import base64
 
-from typing import Optional, Union, List, Tuple, Dict, Any, Iterator, TYPE_CHECKING
+from typing import Optional, Union, List, Tuple, Any, TYPE_CHECKING
 
-from ..constants import *
-from .string_util import get_uuid
-from .introspection_util import is_numpy_array, is_torch_tensor, is_pil_image
+from ...constants import *
+from ..string_util import get_uuid
+from ..introspection_util import is_numpy_array, is_torch_tensor, is_pil_image
 
 if TYPE_CHECKING:
     import numpy as np
     from PIL.Image import Image
     from torch import Tensor, dtype as TorchDType
     from turbojpeg import TurboJPEG # type: ignore[import-not-found,import-untyped,unused-ignore]
-    from ..hinting import ImageType
+    from ...hinting import ImageType
 
 __all__ = [
-    "fit_image",
-    "tile_image",
-    "image_tiles",
     "image_from_uri",
-    "images_are_equal",
     "get_frames_or_image",
     "get_frames_or_image_from_file",
     "save_frames_or_image",
-    "create_mask",
-    "scale_image",
-    "get_image_metadata",
-    "redact_images_from_metadata",
-    "dilate_erode",
     "image_to_tensor",
     "tensor_to_image",
     "to_pil_array",
     "to_jpeg_array",
     "to_bhwc_ndarray",
     "to_bchw_tensor",
-    "is_multi_image",
-    "get_image_width_height",
     "serialize_image",
     "pad_image",
     "pad_image_to_nearest",
-    "show_image",
     "EncodedImageProxy",
 ]
 
@@ -106,246 +93,20 @@ class EncodedImageProxy:
             return super().__getattr__(attr) # type: ignore[misc]
         return getattr(self.image, attr)
 
-def fit_image(
-    image: Union[Image, List[Image]],
-    width: int,
-    height: int,
-    fit: Optional[IMAGE_FIT_LITERAL] = None,
-    anchor: Optional[IMAGE_ANCHOR_LITERAL] = None,
-    offset_left: Optional[int] = None,
-    offset_top: Optional[int] = None
-) -> Union[Image, List[Image]]:
-    """
-    Given an image of unknown size, make it a known size with optional fit parameters.
-    """
-    if not isinstance(image, list):
-        if getattr(image, "n_frames", 1) > 1:
-            frames = []
-            for i in range(image.n_frames): # type: ignore[attr-defined,unused-ignore]
-                image.seek(i)
-                frames.append(image.copy().convert("RGBA"))
-            image = frames
-    if isinstance(image, list):
-        return [
-            fit_image( # type: ignore[misc]
-                img,
-                width=width,
-                height=height,
-                fit=fit,
-                anchor=anchor,
-                offset_left=offset_left,
-                offset_top=offset_top,
-            )
-            for img in image
-        ]
-
-    from PIL import Image
-
-    if fit is None or fit == "actual":
-        left, top = 0, 0
-        crop_left, crop_top = 0, 0
-        image_width, image_height = image.size
-
-        if anchor is not None:
-            top_part, left_part = anchor.split("-")
-
-            if top_part == "center":
-                top = height // 2 - image_height // 2
-            elif top_part == "bottom":
-                top = height - image_height
-
-            if left_part == "center":
-                left = width // 2 - image_width // 2
-            elif left_part == "right":
-                left = width - image_width
-
-        blank_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-
-        if offset_top is not None:
-            top += offset_top
-        if offset_left is not None:
-            left += offset_left
-        if image.mode == "RGBA":
-            blank_image.paste(image, (left, top), image)
-        else:
-            blank_image.paste(image, (left, top))
-
-        return blank_image
-
-    elif fit == "contain":
-        image_width, image_height = image.size
-        width_ratio, height_ratio = width / image_width, height / image_height
-        horizontal_image_width = int(image_width * width_ratio)
-        horizontal_image_height = int(image_height * width_ratio)
-        vertical_image_width = int(image_width * height_ratio) 
-        vertical_image_height = int(image_height * height_ratio)
-        top, left = 0, 0
-        direction = None
-        if width >= horizontal_image_width and height >= horizontal_image_height:
-            input_image = image.resize((horizontal_image_width, horizontal_image_height))
-            if anchor is not None:
-                top_part, _ = anchor.split("-")
-                if top_part == "center":
-                    top = height // 2 - horizontal_image_height // 2
-                elif top_part == "bottom":
-                    top = height - horizontal_image_height
-        elif width >= vertical_image_width and height >= vertical_image_height:
-            input_image = image.resize((vertical_image_width, vertical_image_height))
-            if anchor is not None:
-                _, left_part = anchor.split("-")
-                if left_part == "center":
-                    left = width // 2 - vertical_image_width // 2
-                elif left_part == "right":
-                    left = width - vertical_image_width
-
-        if offset_top is not None:
-            top += offset_top
-        if offset_left is not None:
-            left += offset_left
-
-        blank_image = Image.new("RGBA", (width, height))
-        if input_image.mode == "RGBA":
-            blank_image.paste(input_image, (left, top), input_image)
-        else:
-            blank_image.paste(input_image, (left, top))
-
-        return blank_image
-
-    elif fit == "cover":
-        image_width, image_height = image.size
-        width_ratio, height_ratio = width / image_width, height / image_height
-        horizontal_image_width = math.ceil(image_width * width_ratio)
-        horizontal_image_height = math.ceil(image_height * width_ratio)
-        vertical_image_width = math.ceil(image_width * height_ratio)
-        vertical_image_height = math.ceil(image_height * height_ratio)
-        top, left = 0, 0
-        direction = None
-        if width <= horizontal_image_width and height <= horizontal_image_height:
-            input_image = image.resize((horizontal_image_width, horizontal_image_height))
-            if anchor is not None:
-                top_part, _ = anchor.split("-")
-                if top_part == "center":
-                    top = height // 2 - horizontal_image_height // 2
-                elif top_part == "bottom":
-                    top = height - horizontal_image_height
-        elif width <= vertical_image_width and height <= vertical_image_height:
-            input_image = image.resize((vertical_image_width, vertical_image_height))
-            if anchor is not None:
-                _, left_part = anchor.split("-")
-                if left_part == "center":
-                    left = width // 2 - vertical_image_width // 2
-                elif left_part == "right":
-                    left = width - vertical_image_width
-        else:
-            input_image = image.resize((width, height))  # We're probably off by a pixel
-
-        if offset_top is not None:
-            top += offset_top
-        if offset_left is not None:
-            left += offset_left
-
-        blank_image = Image.new("RGBA", (width, height))
-        if input_image.mode == "RGBA":
-            blank_image.paste(input_image, (left, top), input_image)
-        else:
-            blank_image.paste(input_image, (left, top))
-
-        return blank_image
-
-    elif fit == "stretch":
-        return image.resize((width, height)).convert("RGBA")
-
-    else:
-        raise ValueError(f"Unknown fit {fit}")
-
-def dilate_erode(
-    image: Union[Image, List[Image]],
-    value: int
-) -> Union[Image, List[Image]]:
-    """
-    Given an image, dilate or erode it.
-    Values of >0 dilate, <0 erode. 0 Does nothing.
-    :see: http://docs.opencv.org/3.4/db/df6/tutorial_erosion_dilatation.html
-    """
-    if value == 0:
-        return image
-    if isinstance(image, list):
-        return [
-                dilate_erode(img, value) # type: ignore[misc]
-            for img in image
-        ]
-
-    from PIL import Image
-    import cv2 # type: ignore[import-not-found,unused-ignore]
-    import numpy as np
-
-    arr = np.array(image.convert("L"))
-    transform = cv2.dilate if value > 0 else cv2.erode
-    value = abs(value)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (value, value))
-    arr = transform(arr, kernel, iterations=1)
-    return Image.fromarray(arr)
-
-def tile_image(image: Image, tiles: Union[int, Tuple[int, int]]) -> Image:
-    """
-    Given an image and number of tiles, create a tiled image.
-    Accepts either an integer (squre tiles) or tuple (rectangular)
-    """
-    from PIL import Image
-    width, height = image.size
-    if isinstance(tiles, tuple):
-        width_tiles, height_tiles = tiles
-    else:
-        width_tiles, height_tiles = tiles, tiles
-    tiled = Image.new(image.mode, (width * width_tiles, height * height_tiles))
-    for i in range(width_tiles):
-        for j in range(height_tiles):
-            tiled.paste(image, (i * width, j * height))
-    return tiled
-
 def image_from_uri(uri: str) -> Image:
     """
     Loads an image using the fruition retriever if it's installed.
     That supports: http, file, ftp, ftps, sftp, and s3.
     If fruition is not installed, only supports local files and http.
     """
-    from .download_util import retrieve_uri
+    from ..download_util import retrieve_uri
     from PIL import Image
     Image.MAX_IMAGE_PIXELS = 2**32
     return Image.open(retrieve_uri(uri))
 
-def images_are_equal(image_1: Image, image_2: Image) -> bool:
-    """
-    Determines if two images are equal.
-    """
-    from PIL import ImageChops
-    if image_1.height != image_2.height or image_1.width != image_2.width:
-        return False
-    if image_1.mode == image_2.mode == "RGBA":
-        image_1_alpha = [p[3] for p in image_1.getdata()] # type: ignore[attr-defined, unused-ignore]
-        image_2_alpha = [p[3] for p in image_2.getdata()] # type: ignore[attr-defined, unused-ignore]
-        if image_1_alpha != image_2_alpha:
-            return False
-    return not ImageChops.difference(
-        image_1.convert("RGB"), image_2.convert("RGB")
-    ).getbbox()
-
-def image_pixelize(image: Image, factor: int = 2, exact: bool = True) -> Image:
-    """
-    Makes an image pixelized by downsizing and upsizing by a factor.
-    """
-    from PIL import Image
-    from PIL.Image import Resampling
-    width, height = image.size
-    downsample_width = width // 2 ** factor
-    downsample_height = height // 2 ** factor
-    upsample_width = downsample_width * 2 ** factor if exact else width
-    upsample_height = downsample_height * 2 ** factor if exact else height
-    image = image.resize((downsample_width, downsample_height), resample=Resampling.NEAREST)
-    image = image.resize((upsample_width, upsample_height), resample=Resampling.NEAREST)
-    return image
-
-def get_frames_or_image(image: Union[Image, List[Image]]) -> Union[Image, List[Image]]:
+def get_frames_or_image(
+    image: Union[Image, List[Image]]
+) -> Union[Image, List[Image]]:
     """
     Makes sure an image is a list of images if it has more than one frame
     """
@@ -374,7 +135,7 @@ def save_frames_or_image(
     if name is None:
         name = get_uuid()
     if isinstance(image, list):
-        from .video_util import Video
+        from ..video_util import Video
         path = os.path.join(directory, f"{name}.{video_format}")
         Video(image).save(path)
     else:
@@ -400,7 +161,7 @@ def get_frames_or_image_from_file(path: str) -> Union[Image, List[Image]]:
         try:
             with open(dump_file, "wb") as fh:
                 fh.write(b64decode(data))
-            from .video_util import Video
+            from ..video_util import Video
             return Video.from_file(dump_file).frames_as_list
         finally:
             try:
@@ -410,113 +171,13 @@ def get_frames_or_image_from_file(path: str) -> Union[Image, List[Image]]:
     else:
         name, ext = os.path.splitext(path)
         if ext in [".webp", ".webm", ".mp4", ".avi", ".mov", ".gif", ".m4v", ".mkv", ".ogg"]:
-            from .video_util import Video
+            from ..video_util import Video
             return Video.from_file(path).frames_as_list
         else:
             from PIL import Image
             Image.MAX_IMAGE_PIXELS = 2**32
             image = Image.open(path)
             return get_frames_or_image(image)
-
-def create_mask(
-    width: int,
-    height: int,
-    left: int,
-    top: int,
-    right: int,
-    bottom: int
-) -> Image:
-    """
-    Creates a mask from 6 dimensions
-    """
-    from PIL import Image, ImageDraw
-    image = Image.new("RGB", (width, height))
-    draw = ImageDraw.Draw(image)
-    draw.rectangle(((left, top), (right, bottom)), fill="#ffffff")
-    return image
-
-def scale_image(
-    image: Image,
-    scale: Union[int, float]=1.0,
-    nearest: int=1,
-    smallest: Optional[int]=None,
-) -> Image:
-    """
-    Scales an image proportionally.
-    """
-    from PIL import Image
-    image_width, image_height = image.size
-    width = float(image_width*scale)
-    height = float(image_height*scale)
-    if smallest is not None:
-       smallest_side = min(width, height)
-       if smallest_side < smallest:
-            additional_upscale = smallest / smallest_side
-            width *= additional_upscale
-            height *= additional_upscale
-    image_width = nearest * round(width / nearest)
-    image_height = nearest * round(height / nearest)
-    return image.resize((image_width, image_height), Image.Resampling.LANCZOS)
-
-def image_tiles(
-    image: Image,
-    tile_size: Union[int, Tuple[int, int]],
-    tile_stride: Union[int, Tuple[int, int]],
-) -> Iterator[Image]:
-    """
-    Gets image tiles using sliding windows.
-    """
-    from .misc_util import sliding_windows
-    width, height = image.size
-    for x0, x1, y0, y1 in sliding_windows(width, height, tile_size, tile_stride):
-        cropped = image.crop((x0, y0, x1, y1))
-        setattr(cropped, "coordinates", (x0, y0, x1, y1))
-        yield cropped
-
-def get_image_metadata(image: Union[str, Image, List[Image]]) -> Dict[str, Any]:
-    """
-    Gets metadata from an image
-    """
-    if isinstance(image, str):
-        return get_image_metadata(get_frames_or_image_from_file(image))
-    elif isinstance(image, list):
-        (width, height) = image[0].size
-        return {
-            "width": width,
-            "height": height,
-            "frames": len(image),
-            "metadata": getattr(image[0], "text", {}),
-        }
-    else:
-        (width, height) = image.size
-        return {
-            "width": width,
-            "height": height,
-            "metadata": getattr(image, "text", {})
-        }
-
-def redact_images_from_metadata(metadata: Dict[str, Any]) -> None:
-    """
-    Removes images from a metadata dictionary
-    """
-    for key in ["image", "mask"]:
-        image = metadata.get(key, None)
-        if image is not None:
-            if isinstance(image, dict):
-                image["image"] = get_image_metadata(image["image"])
-            elif isinstance(image, str):
-                metadata[key] = get_image_metadata(metadata[key])
-            else:
-                metadata[key] = get_image_metadata(metadata[key])
-    if "control_images" in metadata:
-        for i, control_dict in enumerate(metadata["control_images"]):
-            control_dict["image"] = get_image_metadata(control_dict["image"])
-    if "ip_adapter_images" in metadata:
-        for i, ip_adapter_dict in enumerate(metadata["ip_adapter_images"]):
-            ip_adapter_dict["image"] = get_image_metadata(ip_adapter_dict["image"])
-    if "layers" in metadata:
-        for layer in metadata["layers"]:
-            redact_images_from_metadata(layer)
 
 def image_to_tensor(
     image: Image,
@@ -565,48 +226,6 @@ def tensor_to_image(
     img_array = tensor.cpu().numpy()
     img = Image.fromarray(img_array)
     return img
-
-def is_multi_image(images: ImageType) -> bool:
-    """
-    Determines if an image was intended to be a multi-frame image
-    This is from the perspective of the developer, so generally this
-    should check if the image is:
-        1. A list of images
-        2. A 4-dimensional tensor
-        3. A 4-dimensional numpy array
-    Others will be treated as singular images, so functions should return
-    a singular image as well.
-    """
-    type_names = [
-        mro_type.__name__
-        for mro_type in type(images).mro()
-    ]
-    if "ndarray" in type_names:
-        return len(images.shape) == 4 # type: ignore[union-attr]
-    elif "Tensor" in type_names:
-        return images.ndimension() == 4 # type: ignore[union-attr]
-    return isinstance(images, list)
-
-def get_image_width_height(image: ImageType) -> Tuple[int, int]:
-    """
-    Gets the size of an image
-    """
-    if isinstance(image, list):
-        return get_image_width_height(image[0])
-
-    type_names = [
-        mro_type.__name__
-        for mro_type in type(image).mro()
-    ]
-    if "Image" in type_names:
-        return image.size # type: ignore
-    elif "ndarray" in type_names:
-        height, width = image.shape[:2] # type: ignore
-        return width, height
-    elif "Tensor" in type_names:
-        height, width = image.shape[-2:] # type: ignore
-        return width, height
-    raise ValueError(f"Unsupported image type: {', '.join(type_names)}")
 
 def assert_ndarray_image_num_channels(
     image: np.ndarray[Any, Any],
@@ -965,7 +584,7 @@ def to_bchw_tensor(
         )
 
     if dtype is not None:
-        from .torch_util import get_torch_dtype
+        from ..torch_util import get_torch_dtype
         torch_dtype = get_torch_dtype(dtype)
     else:
         torch_dtype = None
@@ -995,7 +614,7 @@ def to_bchw_tensor(
             raise ValueError(f"Unsupported numpy array shape: {images.shape}")
     elif is_torch_tensor(images):
         if resize is not None:
-            from .torch_util import scale_tensor
+            from ..torch_util import scale_tensor
             images = scale_tensor(images, size=resize)
         if images.ndimension() == 3:
             tensor_list = [images.to(dtype=torch_dtype)]
@@ -1043,7 +662,7 @@ def to_bchw_tensor(
         ]
 
     if resize is not None:
-        from .torch_util import scale_tensor
+        from ..torch_util import scale_tensor
         tensor_list = [
             scale_tensor(i, size=resize)
             for i in tensor_list
@@ -1215,20 +834,3 @@ def pad_image_to_nearest(
         return padded_image, (top_padding, left_padding, height + height_padding, width + width_padding)
     return padded_image
 
-def show_image(
-    image: ImageType,
-    title: Optional[str]=None,
-) -> None:
-    """
-    Shows an image
-    """
-    image = to_pil_array(image)[0]
-    try:
-        from IPython.display import display # type: ignore[import-not-found]
-        display(image)
-    except ImportError:
-        import cv2
-        import numpy as np
-        # Show until a key is pressed
-        cv2.imshow(title or "Image", cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR))
-        cv2.waitKey(0)

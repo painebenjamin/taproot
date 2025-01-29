@@ -5,6 +5,7 @@ import tempfile
 
 from typing import TYPE_CHECKING, Optional, Iterator, Callable, Iterable, Literal, List, Union, Tuple, Any
 
+from ..constants import IMAGE_FIT_LITERAL, IMAGE_ANCHOR_LITERAL
 from .log_util import logger
 from .misc_util import reiterator
 from .system_util import catch_output
@@ -13,7 +14,6 @@ if TYPE_CHECKING:
     from numpy import ndarray as NDArray
     from PIL.Image import Image
     from moviepy.editor import VideoFileClip # type: ignore[import-untyped,import-not-found,unused-ignore]
-    from .image_util import IMAGE_FIT_LITERAL, IMAGE_ANCHOR_LITERAL
     from .audio_util import Audio
 
 __all__ = [
@@ -184,7 +184,7 @@ class Video:
                 return image
 
             from .image_util import fit_image
-            return fit_image( # type: ignore[return-value]
+            return fit_image(
                 image,
                 width=width,
                 height=height,

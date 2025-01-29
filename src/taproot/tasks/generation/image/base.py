@@ -13,7 +13,6 @@ from typing import (
 )
 from taproot.util import (
     get_aligned_timesteps_for_scheduler,
-    get_metadata,
     get_seed,
     logger,
     scale_tensor,
@@ -324,7 +323,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         is_pag = pag_scale is not None and pag_scale > 0.0
         is_cfg = guidance_scale is not None and guidance_scale > 1.0
 
-        use_high_res_fix = (
+        use_highres_fix = (
             highres_fix_factor is not None and highres_fix_factor > 0.0 and
             highres_fix_strength is not None and highres_fix_strength > 0.0
         )
@@ -492,28 +491,76 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
             )
 
         # Finally, we invoke the pipeline
-        generator = torch.Generator(device=self.device)
-        generator.manual_seed(get_seed(seed))
+        num_images_per_prompt = kwargs.get("num_images_per_prompt", 1)
+        if "prompt_embeds" in kwargs:
+            batch_size = kwargs["prompt_embeds"].shape[0]
+        elif "prompt" in kwargs and isinstance(kwargs["prompt"], (list, tuple)):
+            batch_size = len(kwargs["prompt"])
+        elif "image" in kwargs:
+            if isinstance(kwargs["image"], (list, tuple)):
+                batch_size = len(kwargs["image"])
+            elif isinstance(kwargs["image"], torch.Tensor):
+                batch_size = kwargs["image"].shape[0]
+            else:
+                batch_size = 1
+        else:
+            batch_size = 1
+
+        seed = get_seed(seed)
+        generators: List[torch.Generator] = []
+        for i in range(batch_size * num_images_per_prompt):
+            generator = torch.Generator(device=self.device)
+            generator.manual_seed(seed)
+            generators.append(generator)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Invoke pipeline with kwargs:")
             for k, datum in kwargs.items():
                 if isinstance(datum, torch.Tensor):
                     logger.debug(f"{k}: {datum.shape} {datum.dtype}")
+                elif isinstance(datum, (list, tuple)):
+                    for i, item in enumerate(datum):
+                        if isinstance(item, torch.Tensor):
+                            logger.debug(f"{k}[{i}]: {item.shape} {item.dtype}")
+                        else:
+                            logger.debug(f"{k}[{i}]: {item}")
                 else:
                     logger.debug(f"{k}: {datum}")
+
+        # Start tracking rate
+        if is_image_to_image:
+            num_adjusted_inference_steps = max(1, int(num_inference_steps * kwargs.get("strength", 0.6)))
+        else: 
+            num_adjusted_inference_steps = num_inference_steps
+
+        self.num_steps = num_adjusted_inference_steps
+
+        def pipeline_callback(
+            pipeline: DiffusionPipeline,
+            index: int,
+            timestep: int,
+            callback_kwargs: Dict[str, Any]
+        ) -> Dict[str, Any]:
+            """
+            Pipeline callback.
+            """
+            self.step = index
+            if self.interrupted:
+                pipeline._interrupt = True # type: ignore[attr-defined]
+            return callback_kwargs
 
         try:
             result = pipeline( # type: ignore[operator]
                 num_inference_steps=num_inference_steps,
-                generator=generator,
+                generator=generators,
+                callback_on_step_end=pipeline_callback,
                 **kwargs
             ).images
 
             # If we're doing high-resolution fix, we need to run the pipeline again
-            if use_high_res_fix:
+            if use_highres_fix:
                 # Remove images from kwargs
-                for ignored_kwarg in ["image", "mask_image", "control_image", "latents", "width", "height", "strength"]:
+                for ignored_kwarg in ["image", "control_image", "latents", "width", "height", "strength"]:
                     kwargs.pop(ignored_kwarg, None)
                 if accepts_output_type and not output_latent:
                     kwargs["output_type"] = "pt"
@@ -541,16 +588,25 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                     scale_factor=1.0 + (highres_fix_factor or 0.0)
                 ).clamp(0., 1.)
 
+                if kwargs.get("mask_image", None) is not None:
+                    kwargs["mask_image"] = scale_tensor(
+                        kwargs["mask_image"],
+                        scale_factor=1.0 + (highres_fix_factor or 0.0)
+                    ).clamp(0., 1.)
+
                 if accepts_width and accepts_height:
                     b, c, h, w = result.shape
                     kwargs["width"] = w
                     kwargs["height"] = h
 
+                num_highres_steps = max(1, int(num_inference_steps * (highres_fix_strength or 0.0)))
+                self.num_steps = num_highres_steps
                 result = pipeline( # type: ignore[operator]
                     image=result,
                     num_inference_steps=num_inference_steps,
-                    generator=generator,
+                    generator=generators,
                     strength=highres_fix_strength,
+                    callback_on_step_end=pipeline_callback,
                     **kwargs
                 ).images
 

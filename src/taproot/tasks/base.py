@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import tempfile
 import warnings
 
@@ -132,6 +133,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
     optional_component_tasks: Optional[Dict[str, Type[Task]]] = None
 
     """Private properties"""
+    _interrupt_event: threading.Event
     _dtype: Optional[torch.dtype]
     _is_available: bool
     _start: float = 0.0
@@ -500,7 +502,23 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         return self.config.options # type: ignore[no-any-return]
 
+    @property
+    def interrupt_event(self) -> threading.Event:
+        """
+        Get the interrupt event.
+        """
+        if not hasattr(self, "_interrupt_event"):
+            self._interrupt_event = threading.Event()
+        return self._interrupt_event
+
     """Calculated properties"""
+
+    @property
+    def interrupted(self) -> bool:
+        """
+        Get whether the task has been interrupted.
+        """
+        return self.interrupt_event.is_set()
 
     @property
     def progress(self) -> float:
@@ -1709,6 +1727,14 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         self.pretrained.onload()
         self.tasks.onload()
+
+    def interrupt(self) -> None:
+        """
+        Interrupts any currently running tasks.
+        """
+        self.interrupt_event.set()
+        self.pretrained.shutdown()
+        self.tasks.shutdown()
 
     def __call__(self, **kwargs: Any) -> Any:
         """

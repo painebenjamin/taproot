@@ -595,7 +595,13 @@ class DiffusersPipelineTask(Task):
         """
         Disable multidiffusion.
         """
-        disable_2d_multidiffusion(self.get_denoising_model())
+        try:
+            denoising_model = self.get_denoising_model()
+        except (KeyError, ValueError) as ex:
+            if self.interrupted:
+                return # Don't raise an error if interrupted
+            raise ex
+        disable_2d_multidiffusion(denoising_model)
 
     def onload_controlnet(self, controlnet: Union[str, Sequence[str]]) -> None:
         """

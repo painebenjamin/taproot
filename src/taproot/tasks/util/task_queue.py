@@ -77,6 +77,7 @@ class TaskQueue(ConfigMixin):
         self._util_ema = 0.0
         self._executions = 0
         self._lock = threading.Lock()
+        self._stop = threading.Event()
 
     """Configuration attributes"""
 
@@ -392,20 +393,38 @@ class TaskQueue(ConfigMixin):
         await self.wait_for_task()
         self._task.num_steps = 1 # Reset steps and counters
         self._job_starts[payload_id] = perf_counter()
-        result = await asyncio.to_thread(self._execute_task, kwargs)
 
-        callback = self._job_callback.pop(payload_id, None)
-        callback_result: Any = None
-        if callback is not None:
-            callback_result = await execute_and_await(callback, result)
+        task = asyncio.create_task(asyncio.to_thread(self._execute_task, kwargs))
+        logger.debug(f"Started task for {self.task_name}:{self.model_name} with ID {payload_id}")
+        try:
+            while not self._stop.is_set():
+                await asyncio.sleep(0.01)
+                if task.done():
+                    break
+        except asyncio.CancelledError:
+            pass
+
+        if not task.done() and self._stop.is_set():
+            # Cancel the task if the queue is shutting down
+            logger.info(f"Cancelling task for {self.task_name}:{self.model_name} with ID {payload_id}")
+            task.cancel()
+            self._task.interrupt()
+
+        try:
+            result = await task
+            callback = self._job_callback.pop(payload_id, None)
+            callback_result: Any = None
+            if callback is not None:
+                callback_result = await execute_and_await(callback, result)
+                self._job_callback_result[payload_id] = callback_result
+        except asyncio.CancelledError:
+            result = None
 
         with self._lock:
             end_time = perf_counter()
             self._job_results[payload_id] = result
             self._job_ends[payload_id] = end_time
             self._job_access[payload_id] = end_time
-            if callback is not None:
-                self._job_callback_result[payload_id] = callback_result
 
         return result
 
@@ -562,6 +581,7 @@ class TaskQueue(ConfigMixin):
         """
         Starts the initial rounds of tasks.
         """
+        self._stop.clear()
         loop = asyncio.get_running_loop()
         logger.info(f"Starting load task for {self.task_name}:{self.model_name}")
         self._load_task = loop.create_task(self._initialize_task())
@@ -585,13 +605,18 @@ class TaskQueue(ConfigMixin):
           3. Unload
           4. Cleanup
         """
+        logger.info(f"Shutting down task queue for {self.task_name}:{self.model_name}")
+        self._stop.set()
         self._check_stop_periodic_task()
+        await asyncio.sleep(0.01) # Let tasks stop
+
         if self._periodic_task is not None:
             # wait for it to actually finish
             try:
                 await self._periodic_task
             except asyncio.CancelledError:
                 pass
+            logger.debug(f"Periodic task for {self.task_name}:{self.model_name} shut down.")
 
         if self._active_task is not None:
             if not self._active_task.done():
@@ -601,6 +626,7 @@ class TaskQueue(ConfigMixin):
                 await self._active_task
             except asyncio.CancelledError:
                 pass
+            logger.debug(f"Active task for {self.task_name}:{self.model_name} shut down.")
             self._active_task = None
 
         if self._load_task is not None:
@@ -611,6 +637,7 @@ class TaskQueue(ConfigMixin):
                 await self._load_task
             except asyncio.CancelledError:
                 pass
+            logger.debug(f"Load task for {self.task_name}:{self.model_name} shut down.")
             self._load_task = None
 
         self._unload_task()

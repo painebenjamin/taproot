@@ -693,6 +693,8 @@ def overseer(
 
     Additionally runs a local dispatcher while running the overseer if --local/-l is passed.
     """
+    #from hanging_threads import start_monitoring
+    #start_monitoring(seconds_frozen=10, test_interval=100)
     with get_pidfile_context(pidfile, exclusive):
         with get_command_context(log_level, add_import):
             from .server import Overseer, Dispatcher

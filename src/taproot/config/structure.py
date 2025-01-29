@@ -64,7 +64,7 @@ class ServerConfig:
     """
     Configuration for servers.
     """
-    protocol: str = "ws"
+    protocol: str = DEFAULT_PROTOCOL
     host: Optional[str] = None
     port: Optional[int] = None
     path: Optional[str] = None

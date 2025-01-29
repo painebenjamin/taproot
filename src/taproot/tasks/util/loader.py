@@ -29,6 +29,7 @@ class Loader:
         device: Optional[Union[str, torch.device]]=None,
         dtype: Optional[Union[str, torch.dtype]]=None,
     ) -> None:
+        self.is_shutdown = False
         self.directory = directory
         self.loaded = {}
         if device is not None and isinstance(device, str):
@@ -162,6 +163,12 @@ class Loader:
         ):
             self.compile_by_name(model_name)
 
+    def shutdown(self) -> None:
+        """
+        Shutdown the loader, preventing further loading of models.
+        """
+        self.is_shutdown = True
+
     def __getitem__(self, model_name: str) -> Any:
         """
         Get a loaded model
@@ -169,6 +176,8 @@ class Loader:
         try:
             return self.loaded[model_name]
         except KeyError:
+            if self.is_shutdown:
+                raise AttributeError("Loader has been shutdown, cannot load new models")
             try:
                 self.load_by_name(model_name)
                 return getattr(self, model_name)

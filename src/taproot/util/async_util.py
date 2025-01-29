@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import platform
+import threading
 import asyncio
 import signal
 
-from typing import Any, Callable, Awaitable, List, Optional, Coroutine, TYPE_CHECKING
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Coroutine,
+    List,
+    Optional,
+    Union,
+    TYPE_CHECKING
+)
 
 from multiprocessing import Process
 
@@ -198,17 +208,23 @@ class ServerRunner:
         """
         self.after_stop_callbacks.append(callback)
 
-    async def main(self, install_signal_handlers: bool=True) -> None:
+    async def main(
+        self,
+        install_signal_handlers: bool=True,
+        exit_event: Optional[Union[asyncio.Event, threading.Event]]=None
+    ) -> None:
         """
         The main loop that runs the servers.
         """
         for callback in self.before_start_callbacks:
             await execute_and_await(callback)
 
-        exit_event = asyncio.Event()
+        if exit_event is None:
+            exit_event = asyncio.Event()
 
         if install_signal_handlers:
             def exit_handler(signum: int, frame: Any) -> None:
+                logger.info(f"Received signal {signum}, shutting down.")
                 exit_event.set()
 
             signal.signal(signal.SIGINT, exit_handler)
@@ -241,15 +257,17 @@ class ServerRunner:
                 # If all tasks are done, break
                 if all(task.done() for task in tasks):
                     break
+
                 try:
-                    await asyncio.wait_for(exit_event.wait(), timeout=0.1)
-                except asyncio.TimeoutError:
+                        await asyncio.sleep(0.01)
+                except asyncio.CancelledError:
                     pass
         finally:
             # Call the before stop callbacks
             for callback in self.before_stop_callbacks:
                 await execute_and_await(callback)
 
+            logger.debug(f"Issuing exit request to servers.")
             # Shutdown all the remaining servers in parallel
             exit_results = await asyncio.gather(*[
                 server.exit()
@@ -258,18 +276,20 @@ class ServerRunner:
             ], return_exceptions=True)
 
             # Log any exceptions
-            max_wait_time = 10.0
+            max_wait_time = 5.0
             for result, server in zip(exit_results, self.servers):
                 if isinstance(result, Exception):
                     logger.info(f"Error stopping server {type(server).__name__}: {result}")
                     max_wait_time = 0.0 # Don't wait if there was an error, just cancel
 
-            # Wait up to 10 seconds for all tasks to finish
+            # Wait up to 5 seconds for all tasks to finish
             total_time = 0.0
+            logger.debug("Waiting for all servers to stop.")
             while any(not task.done() for task in tasks) and total_time < max_wait_time:
-                await asyncio.sleep(0.2)
-                total_time += 0.2
+                await asyncio.sleep(0.1)
+                total_time += 0.1
 
+            logger.debug(f"All servers stopped after {total_time} seconds.")
             # Ensure all tasks are done
             for task, server in zip(tasks, self.servers):
                 if not task.done():
@@ -277,18 +297,33 @@ class ServerRunner:
                     task.cancel()
 
             # Await all tasks
+            logger.debug("Gathering remaining tasks.")
             try:
                 await asyncio.gather(*tasks)
             except asyncio.CancelledError:
                 pass
 
+            logger.info("All servers stopped.")
             # Call the after stop callbacks
             for callback in self.after_stop_callbacks:
                 await execute_and_await(callback)
 
+            # Cancel any remaining tasks
+            logger.debug("Cancelling any remaining tasks.")
+            for task in asyncio.all_tasks():
+                if task.done():
+                    continue
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            loop.stop()
+
     def run(
         self,
         install_signal_handlers: bool=True,
+        exit_event: Optional[Union[asyncio.Event, threading.Event]]=None,
         debug: bool=False
     ) -> None:
         """
@@ -297,7 +332,10 @@ class ServerRunner:
         if uvloop_is_available():
             import uvloop
             uvloop.run(
-                self.main(install_signal_handlers=install_signal_handlers),
+                self.main(
+                    install_signal_handlers=install_signal_handlers,
+                    exit_event=exit_event
+                ),
                 debug=debug
             )
         else:
@@ -306,7 +344,10 @@ class ServerRunner:
                 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # type: ignore[attr-defined]
 
             asyncio.run(
-                self.main(install_signal_handlers=install_signal_handlers)
+                self.main(
+                    install_signal_handlers=install_signal_handlers,
+                    exit_event=exit_event
+                )
             )
 
 class ServerSubprocessRunner:

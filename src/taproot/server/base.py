@@ -928,9 +928,9 @@ class Server(Encryption):
                             result = await self._handle_control_request(request)
                             if isinstance(result, str) and result == self._shutdown_key:
                                 if self.protocol == "unix":
-                                    logger.info(f"Received exit request.")
+                                    logger.info(f"{self.address} received exit request.")
                                 else:
-                                    logger.info(f"Received exit request from {peername[0]}.")
+                                    logger.info(f"{self.address} received exit request from {peername[0]}.")
                                 self.manual_exit.set()
                                 result = None
                     else:
@@ -1020,7 +1020,7 @@ class Server(Encryption):
                             response = await self._handle_control_request(request)
                             if response == self._shutdown_key:
                                 self.manual_exit.set()
-                                logger.info(f"Received exit request from {websocket.remote_address[0]}.")
+                                logger.info(f"{self.address} received exit request from {websocket.remote_address[0]}.")
                                 response = None
                         except Exception as e:
                             response = e
@@ -1100,7 +1100,7 @@ class Server(Encryption):
                             if response == self._shutdown_key:
                                 self.manual_exit.set()
                                 if websocket.client is not None:
-                                    logger.info(f"Received exit request from {websocket.client.host}.")
+                                    logger.info(f"{self.address} received exit request from {websocket.client.host}.")
                                 response = None
                         except Exception as e:
                             response = e
@@ -1169,7 +1169,7 @@ class Server(Encryption):
                     result = await self._handle_control_request(request)
                     if isinstance(result, str) and result == self._shutdown_key:
                         if http_request.client is not None:
-                            logger.info(f"Received exit request from {http_request.client.host}.")
+                            logger.info(f"{self.address} received exit request from {http_request.client.host}.")
                         self.manual_exit.set()
                         result = None
             else:
@@ -1280,13 +1280,14 @@ class Server(Encryption):
                         elif self._is_idle_timeout():
                             logger.info(f"{type(self).__name__} listening on {self.address} reached idle timeout.")
                             return
+                    logger.info(f"{type(self).__name__} listening on {self.address} was manually exited.")
         except Exception as e:
             logger.error(f"{type(self).__name__}: Error in server loop: {e}")
             logger.error(traceback.format_exc())
             return
         finally:
             try:
-                logger.debug(f"Shutting down {type(self).__name__} on {self.address}.")
+                logger.info(f"Shutting down {type(self).__name__} on {self.address}.")
                 await self.shutdown()
             except Exception as e:
                 logger.error(f"{type(self).__name__}: Error shutting down: {e}")
@@ -1384,6 +1385,7 @@ class Server(Encryption):
     def serve(
         self,
         install_signal_handlers: bool=True,
+        exit_event: Optional[Union[threading.Event, asyncio.Event]]=None,
         debug: bool=False
     ) -> None:
         """
@@ -1391,6 +1393,7 @@ class Server(Encryption):
         """
         ServerRunner(self).run(
             install_signal_handlers=install_signal_handlers,
+            exit_event=exit_event,
             debug=debug
         )
 

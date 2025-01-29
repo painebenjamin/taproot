@@ -22,7 +22,6 @@ def test_dispatcher() -> None:
         dispatcher = Dispatcher({
             "spawn_interval": None,
             "max_workers": 3,
-            "use_multiprocessing": True,
             "executor_config": {
                 "max_idle_time": 0.4,
             },
@@ -134,7 +133,6 @@ def _test_configured_executors() -> None:
             "host": "127.0.0.1",
             "port": find_free_port(),
             "max_workers": 5,
-            "use_multiprocessing": True,
             "executor_config": {
                 "max_idle_time": 1.0,
                 "protocol": "tcp",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import threading
 
 from typing import (
     Any,
@@ -51,6 +52,7 @@ class RunningExecutor:
     """
     server: Executor
     future: asyncio.Future[Any]
+    exit_event: threading.Event
     start_time: float = 0.0
     assignment_times: List[float] = field(default_factory=list)
 
@@ -478,7 +480,6 @@ class Dispatcher(ConfigServer):
                 )
             )
 
-        protocol = self.config.executor_config.protocol
         config_dict: ExecutorConfigDict = {
             "queue_config": {
                 "task": task.task,
@@ -491,7 +492,7 @@ class Dispatcher(ConfigServer):
                     "save_dir": queue_config.task_config.save_dir or self.save_dir,
                 }
             },
-            "protocol": protocol,
+            "protocol": self.executor_protocol,
             "host": None,
             "port": None,
             "encryption": None,
@@ -499,9 +500,9 @@ class Dispatcher(ConfigServer):
             "max_idle_time": self.config.executor_config.max_idle_time,
         }
 
-        if protocol == "memory":
+        if self.executor_protocol == "memory":
             config_dict["port"] = find_free_memory_port()
-        elif protocol in ["tcp", "ws", "http"]:
+        elif self.executor_protocol in ["tcp", "ws", "http"]:
             if self.config.executor_config.host:
                 config_dict["host"] = self.config.executor_config.host
             elif self.protocol != "unix":
@@ -512,7 +513,7 @@ class Dispatcher(ConfigServer):
                     EncryptionConfigDict,
                     dict(self.config.executor_config.encryption)
                 )
-        elif protocol == "unix":
+        elif self.executor_protocol == "unix":
             config_dict["path"] = find_free_unix_socket()
 
         if self.use_control_encryption:
@@ -698,16 +699,18 @@ class Dispatcher(ConfigServer):
             executor_config["max_idle_time"] = None
 
         executor = Executor(executor_config) # type: ignore[arg-type]
+        exit_event = threading.Event()
         future = asyncio.get_running_loop().run_in_executor(
             self.pool,
             executor.serve,
             False, # Don't install signal handlers
+            exit_event, # Pass the exit event
         )
 
         if task not in self.executors:
             self.executors[task] = []
 
-        now_running = RunningExecutor(server=executor, future=future)
+        now_running = RunningExecutor(server=executor, future=future, exit_event=exit_event)
         try:
             await asyncio.sleep(0.001)
             await executor.assert_connectivity()
@@ -827,17 +830,20 @@ class Dispatcher(ConfigServer):
                 executor_config.control_encryption = EncryptionConfig()
                 executor_config.control_encryption.encryption_key = self.control_encryption_key
                 executor_config.control_encryption.encryption_use_aesni = self.control_encryption_use_aesni
+
             executor = Executor(executor_config)
+            exit_event = threading.Event()
             future = asyncio.get_running_loop().run_in_executor(
                 self.pool,
                 executor.serve,
                 False, # Don't install signal handlers
+                exit_event, # Pass the exit event
             )
 
             if task not in self.executors:
                 self.executors[task] = []
 
-            now_running = RunningExecutor(server=executor, future=future)
+            now_running = RunningExecutor(server=executor, future=future, exit_event=exit_event)
             self.executors[task].append(now_running)
             # Wait for executor process to complete importing to avoid GIL issues
             await asyncio.sleep(2.5)
@@ -1027,18 +1033,10 @@ class Dispatcher(ConfigServer):
         """
         Shutdown the dispatcher.
         """
-        # Go through executors and issue a shutdown to all in parallel
-        try:
-            await asyncio.gather(*[
-                executor.server.exit()
-                for executor_array in self.executors.values()
-                for executor in executor_array
-                if not executor.future.done()
-            ])
-        except Exception as e:
-            logger.debug(f"Dispatcher ignoring error during executor exiting: {e}")
-        else:
-            logger.debug(f"Successfully shut down all executors for dispatcher on {self.address}")
+        # Go through executors and send exit event
+        for executor_array in self.executors.values():
+            for executor in executor_array:
+                executor.exit_event.set()
 
         # Ensure all executor tasks are done
         try:

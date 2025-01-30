@@ -91,6 +91,7 @@ class LlamaTextGeneration(Task):
 
     # Overrides
     gpu_precision: Optional[str] = "half" # Quantized models run as half precision
+    static_memory_gb: Optional[float] = 0.32041 # Static memory usage (RAM)
     measure_nvidia_smi: bool = True # Require external tool to measure
 
     # Internal typing
@@ -432,8 +433,8 @@ class LlamaTextGeneration(Task):
             static_gpu_mem = self.required_static_gpu_memory_gb()
             if static_gpu_mem is None:
                 static_gpu_mem = 0
-            static_bytes = static_gpu_mem * 1024 * 1024 * 1024
-            free_bytes = self.gpu.memory_free 
+            static_bytes = static_gpu_mem * (10 ** 8)
+            free_bytes = self.gpu.memory_free - static_bytes
             # Each additional token of context requires P * V bytes of memory,
             # where P is the number of bytes to store a token and V is the vocab size.
             return min(

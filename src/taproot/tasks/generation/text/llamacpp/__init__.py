@@ -1,3 +1,4 @@
+from .deepseek import *
 from .llama3 import *
 from .llava import *
 from .moondream import *

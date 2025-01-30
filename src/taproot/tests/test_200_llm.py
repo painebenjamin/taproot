@@ -17,7 +17,7 @@ def execute_llm_suite(model: Optional[str] = None) -> None:
         }
         [completed] = execute_task_test_suite(
             "text-generation",
-            task_config={"options": {"context_length": 8192}},
+            task_config={"context_length": 8192},
             assert_static_memory_ratio=0.1, # Ensure +/- 10%
             assert_runtime_memory_ratio=None, # We only care about static (for now)
             model=model,
@@ -140,3 +140,24 @@ def test_llama32_1b_instruct_q4_k_m() -> None:
 
 def test_llama32_1b_instruct_q3_k_l() -> None:
     execute_llm_suite("llama-v3-2-1b-instruct-q3-k-l")
+
+def test_deepseek_r1_llama_8b() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b")
+
+def test_deepseek_r1_llama_8b_q8_0() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q8-0")
+
+def test_deepseek_r1_llama_8b_q6_k() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q6-k")
+
+def test_deepseek_r1_llama_8b_q5_k_m() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q5-k-m")
+
+def test_deepseek_r1_llama_8b_q4_k_m() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q4-k-m")
+
+def test_deepseek_r1_llama_8b_q3_k_m() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q3-k-m")
+
+def test_deepseek_r1_llama_8b_q2_k() -> None:
+    execute_llm_suite("deepseek-r1-llama-8b-q2-k")

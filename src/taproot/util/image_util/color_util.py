@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Tuple, TYPE_CHECKING
 
-from .normalization_util import to_pil_array, to_bchw_tensor
-
 if TYPE_CHECKING:
     from PIL.Image import Image
     from torch import Tensor

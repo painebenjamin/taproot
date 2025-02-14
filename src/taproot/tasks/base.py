@@ -710,7 +710,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
     def get_pending_downloads(
         cls,
         model_dir: str=DEFAULT_MODEL_DIR,
-        allow_optional: bool=True,
+        allow_optional: bool=False,
     ) -> List[str]:
         """
         Get the pending downloads for the task.
@@ -724,7 +724,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
     @classmethod
     def get_pending_packages(
         cls,
-        allow_optional: bool=True,
+        allow_optional: bool=False,
     ) -> Dict[str, Optional[str]]:
         """
         Get the pending packages for the task.
@@ -741,7 +741,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         model_dir: str=DEFAULT_MODEL_DIR,
         device: Optional[Union[str, torch.device]]=None,
         dtype: Optional[Union[str, torch.dtype]]=None,
-        allow_optional: bool=True,
+        allow_optional: bool=False,
     ) -> PretrainedLoader:
         """
         Get the pretrained loader for the task.
@@ -762,7 +762,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         model_dir: str=DEFAULT_MODEL_DIR,
         device: Optional[Union[str, torch.device]]=None,
         dtype: Optional[Union[str, torch.dtype]]=None,
-        allow_optional: bool=True,
+        allow_optional: bool=False,
     ) -> TaskLoader:
         """
         Get the task loader for components of the task.
@@ -786,11 +786,12 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         progress_callback: Optional[Callable[[int, int, int, int], None]]=None,
         text_callback: Optional[Callable[[str], None]]=None,
         authorization: Optional[str]=None,
+        allow_optional: bool=False,
     ) -> None:
         """
         Download the required files for the task.
         """
-        required_files = cls.get_pending_downloads(model_dir)
+        required_files = cls.get_pending_downloads(model_dir, allow_optional=allow_optional)
         check_download_files_to_dir(
             required_files,
             model_dir,
@@ -802,11 +803,11 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         )
 
     @classmethod
-    def install_required_packages(cls) -> None:
+    def install_required_packages(cls, allow_optional: bool=False) -> None:
         """
         Install the required packages for the task.
         """
-        install_packages(cls.get_pending_packages())
+        install_packages(cls.get_pending_packages(allow_optional=allow_optional))
 
     @classmethod
     def ensure_availability(
@@ -817,18 +818,19 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         progress_callback: Optional[Callable[[int, int, int, int], None]]=None,
         text_callback: Optional[Callable[[str], None]]=None,
         authorization: Optional[str]=None,
+        allow_optional: bool=False,
     ) -> None:
         """
         Ensure that the task is available.
         """
-        for library in cls.required_libraries():
+        for library in cls.required_libraries(allow_optional=allow_optional):
             # will raise import error, potentially with instructions how to install
             assert_required_library_installed(library)
-        for binary in cls.required_binaries():
+        for binary in cls.required_binaries(allow_optional=allow_optional):
             # will raise import error, potentially with instructions how to install
             assert_required_binary_installed(binary)
 
-        cls.install_required_packages()
+        cls.install_required_packages(allow_optional=allow_optional)
         cls.download_required_files(
             model_dir=model_dir,
             chunk_size=chunk_size,
@@ -836,6 +838,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
             progress_callback=progress_callback,
             text_callback=text_callback,
             authorization=authorization,
+            allow_optional=allow_optional,
         )
 
     @classmethod

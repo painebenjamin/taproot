@@ -1,4 +1,4 @@
-from typing import Union, Tuple, Literal, List, Optional, Sequence
+from typing import Union, Tuple, Literal, List, Optional, Sequence, Callable
 from typing_extensions import TypedDict, NotRequired
 from PIL import Image
 from numpy.typing import ArrayLike
@@ -7,6 +7,7 @@ from torch import Tensor
 from .util import SeedType # re-exported
 
 __all__ = [
+    "ProgressCallbackType",
     "SingleImageType",
     "ImageType",
     "ImageResultType",
@@ -19,6 +20,7 @@ __all__ = [
     "SeedType",
 ]
 
+ProgressCallbackType = Callable[[int, int], None]
 SingleImageType = Union[
     str, Image.Image, ArrayLike, Tensor
 ]

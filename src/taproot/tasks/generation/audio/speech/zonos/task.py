@@ -85,6 +85,16 @@ class ZonosHybridSpeechSynthesis(Task):
             "flash_attn": FLASH_ATTN_VERSION_SPEC,
         }
 
+    @property
+    def supported_languages(self) -> List[str]:
+        """
+        Supported languages.
+        """
+        if not hasattr(self, "_supported_languages"):
+            from .model.phonemization import LANGUAGES
+            self._supported_languages = LANGUAGES
+        return self._supported_languages
+
     def get_sample_rate(self, enhance: bool=False) -> int:
         """
         Get the sample rate of the model.
@@ -261,6 +271,7 @@ class ZonosHybridSpeechSynthesis(Task):
                     audio = torch.cat([audio, pause_samples], dim=1)
 
             audios.append(audio)
+            self.increment_step()
 
         return concatenate_audio(
             audios,
@@ -329,9 +340,9 @@ class ZonosHybridSpeechSynthesis(Task):
         :param target_rms: The target root mean square (RMS) value of the audio.
         :param fmax: The maximum frequency of the audio.
         :param pitch_std: The standard deviation of the pitch.
-        :param dnsmos: The MOS score of the audio.
-        :param vq_score: The VQ score of the audio.
-        :param min_p: The minimum probability of the generated audio.
+        :param dnsmos: The DNSMOS of the audio (arXiv 2010.15258).
+        :param vq_score: The VQScore of the audio (arXiv 2402.16321).
+        :param min_p: The minimum probability of generated tokens.
         :param speaker_noised: Whether the speaker is noised.
         :param speaking_rate: The speaking rate of the audio.
         :param emotion_happiness: The happiness emotion value [0.0, 1.0].
@@ -392,6 +403,9 @@ class ZonosHybridSpeechSynthesis(Task):
             else:
                 text = normalize_text(text)
             text_chunks.extend(chunk_text(text, max_length=max_chunk_length))
+
+        self.num_steps = len(text_chunks)
+        self.step = 0
 
         with torch.inference_mode():
             results = self.synthesize(

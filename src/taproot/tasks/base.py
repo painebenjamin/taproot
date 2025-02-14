@@ -70,7 +70,7 @@ if TYPE_CHECKING:
     import numpy as np
     from turbojpeg import TurboJPEG # type: ignore[import-not-found,import-untyped,unused-ignore]
 
-    from ..hinting import ImageType, AudioType, AudioResultType
+    from ..hinting import ImageType, AudioType, AudioResultType, ProgressCallbackType
 
 __all__ = [
     "Task",
@@ -142,6 +142,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
     _step_update: float = 0.0
     _rate_ema: float = 0.0
     _intermediates: List[Any] = []
+    _progress_callbacks: List[ProgressCallbackType] = []
 
     """Task properties"""
 
@@ -349,6 +350,8 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
             self._rate_ema = step_delta / time_delta
         else:
             self._rate_ema = self._rate_ema * (1 - self.rate_ema_alpha) + step_delta / time_delta * self.rate_ema_alpha
+
+        self.trigger_progress_callbacks()
 
     @property
     def save_dir(self) -> str:
@@ -1290,6 +1293,13 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         self._intermediates.append(intermediate)
 
+    def trigger_progress_callbacks(self) -> None:
+        """
+        Trigger the progress callbacks.
+        """
+        for callback in self._progress_callbacks:
+            callback(self.step, self.num_steps)
+
     def get_output_from_audio_result(
         self,
         result: Union[torch.Tensor, np.ndarray[Any, Any], Sequence[Union[torch.Tensor, np.ndarray[Any, Any]]]],
@@ -1738,6 +1748,21 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         self.interrupt_event.set()
         self.pretrained.shutdown()
         self.tasks.shutdown()
+
+    def on_progress(self, method: ProgressCallbackType) -> None:
+        """
+        Add a progress callback.
+        """
+        self._progress_callbacks.append(method)
+
+    def off_progress(self, method: Optional[ProgressCallbackType]=None) -> None:
+        """
+        Remove a progress callback.
+        """
+        if method is not None:
+            self._progress_callbacks.remove(method)
+        else:
+            self._progress_callbacks = []
 
     def __call__(self, **kwargs: Any) -> Any:
         """

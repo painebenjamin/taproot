@@ -219,7 +219,7 @@ async def main() -> None:
     result = await tap("image-generation", model="stable-diffusion-xl", prompt="Hello, world!")
     result.save("./output.png")
 
-asyncio.run(main)
+asyncio.run(main())
 ```
 
 ### With a Local Server
@@ -236,7 +236,7 @@ async def main() -> None:
         result = await tap("speech-synthesis", model="kokoro", text="Hello, world!")
         result.save("./output.wav")
 
-uvloop.run(main)
+uvloop.run(main())
 ```
 
 ## Running Servers

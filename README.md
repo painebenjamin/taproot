@@ -219,7 +219,7 @@ async def main() -> None:
     result = await tap("image-generation", model="stable-diffusion-xl", prompt="Hello, world!")
     result.save("./output.png")
 
-asyncio.run(main)
+asyncio.run(main())
 ```
 
 ### With a Local Server

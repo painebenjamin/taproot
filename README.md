@@ -35,7 +35,7 @@ Two encryption methods are also supported:
 
 ## Available Models
 
-There are more than 170 models available across 18 task categories. See the [Task Catalog](https://github.com/painebenjamin/taproot/wiki/Task-Catalog) for the complete list, licenses, requirements and citations. Despite the large number of models available, there are many more yet to be added - if you're looking for a particular enhancement, don't hesitate to make an issue on this repository to request it.
+There are more than 190 models available across 18 task categories. See the [Task Catalog](https://github.com/painebenjamin/taproot/wiki/Task-Catalog) for the complete list, licenses, requirements and citations. Despite the large number of models available, there are many more yet to be added - if you're looking for a particular enhancement, don't hesitate to make an issue on this repository to request it.
 
 ### Roadmap
 
@@ -72,8 +72,11 @@ pip install taproot
 
 Some additional packages are available to install with the square-bracket syntax (e.g. `pip install taproot[a,b,c]`), these are:
 - **tools** - Additional packages for LLM tools like DuckDuckGo Search, BeautifulSoup (for web scraping), etc.
+- **http** - Additional packages for running HTTP servers.
 - **cli** - Additional packages for prettifying console output.
+- **ws** - Additional packages for running WebSocket servers.
 - **av** - Additional packages for reading and writing video.
+- **jp** - Additional packages for processing japanese text.
 - **uv** - `uvloop` for improved performance on linux systems.
 
 ## Installing Tasks

@@ -682,12 +682,12 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         Check if the task is available.
         """
         # First check for required libraries for this task
-        for library in cls.required_libraries():
+        for library in cls.required_libraries(allow_optional=allow_optional):
             if not required_library_is_available(library):
                 return False
 
         # Next check for required binaries for this task
-        for binary in cls.required_binaries():
+        for binary in cls.required_binaries(allow_optional=allow_optional):
             if not required_binary_is_available(binary):
                 return False
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List, Union, TYPE_CHECKING
+from typing import Optional, List, Union, Dict, TYPE_CHECKING
 from tqdm import tqdm
 
 from taproot.constants import *

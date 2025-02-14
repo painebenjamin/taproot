@@ -1,13 +1,11 @@
 from ..pretrained.transformer import (
     FluxSchnellTransformer,
     FluxSchnellTransformerInt8,
-    FluxSchnellTransformerNF4
 )
 
 __all__ = [
     "FluxSchnellSigmaVisionAlphaTransformerFP8",
     "FluxSchnellSigmaVisionAlphaTransformerInt8",
-    "FluxSchnellSigmaVisionAlphaTransformerNF4"
 ]
 
 class FluxSchnellSigmaVisionAlphaTransformerFP8(FluxSchnellTransformer):
@@ -23,10 +21,3 @@ class FluxSchnellSigmaVisionAlphaTransformerInt8(FluxSchnellTransformerInt8):
     Pre-quantized to INT8 with bitsandbytes.
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-flux-v1-dev-sigma-vision-alpha-transformer.int8.fp16.safetensors"
-
-class FluxSchnellSigmaVisionAlphaTransformerNF4(FluxSchnellTransformerNF4):
-    """
-    SigmaVision Alpha for FLUX.dev Transformer model
-    Pre-quantized to NF4 with bitsandbytes.
-    """
-    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-flux-v1-dev-sigma-vision-alpha-transformer.nf4.fp16.safetensors"

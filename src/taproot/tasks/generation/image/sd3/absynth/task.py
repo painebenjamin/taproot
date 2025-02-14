@@ -3,7 +3,6 @@ from ..base import (
     StableDiffusion35LargeInt8,
     StableDiffusion35LargeNF4,
     StableDiffusion35Medium,
-    StableDiffusion35MediumInt8,
 )
 
 from .transformer import (
@@ -14,7 +13,6 @@ from .transformer import (
     StableDiffusion35LargeAbsynthV20TransformerInt8,
     StableDiffusion35LargeAbsynthV20TransformerNF4,
     StableDiffusion35MediumAbsynthV20Transformer,
-    StableDiffusion35MediumAbsynthV20TransformerInt8,
 )
 
 __all__ = [
@@ -25,7 +23,6 @@ __all__ = [
     "StableDiffusion35LargeAbsynthV20Int8",
     "StableDiffusion35LargeAbsynthV20NF4",
     "StableDiffusion35MediumAbsynthV20",
-    "StableDiffusion35MediumAbsynthV20Int8",
 ]
 
 class StableDiffusion35LargeAbsynthV19(StableDiffusion35Large):
@@ -75,11 +72,4 @@ class StableDiffusion35MediumAbsynthV20(StableDiffusion35Medium):
     pretrained_models = {
         **StableDiffusion35Medium.pretrained_models,
         **{"transformer": StableDiffusion35MediumAbsynthV20Transformer},
-    }
-
-class StableDiffusion35MediumAbsynthV20Int8(StableDiffusion35MediumInt8):
-    model = "stable-diffusion-v3-5-medium-absynth-v2-0-int8"
-    pretrained_models = {
-        **StableDiffusion35MediumInt8.pretrained_models,
-        **{"transformer": StableDiffusion35MediumAbsynthV20TransformerInt8},
     }

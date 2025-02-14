@@ -100,16 +100,17 @@ def get_espeak_backend(
         )
     return ESPEAK_BACKENDS[language]
 
-def phonemize(text: str, language: str) -> List[str]:
+def phonemize(text: str, language: str, normalize: bool=False) -> List[str]:
     """
     :param text: The text to phonemize
     :param language: The language of the text
     :return: The phonemized text
     """
-    if "ja" in language:
-        text = normalize_jp_text(text)
-    else:
-        text = normalize_text(text)
+    if normalize:
+        if "ja" in language:
+            text = normalize_jp_text(text)
+        else:
+            text = normalize_text(text)
 
     backend = get_espeak_backend(language)
     [phonemes] = backend.phonemize([text], strip=True)

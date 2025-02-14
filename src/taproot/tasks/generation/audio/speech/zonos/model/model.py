@@ -174,12 +174,8 @@ class Zonos(nn.Module):
             uncond_dict = {k: cond_dict[k] for k in self.prefix_conditioner.required_keys}
 
         c = self.prefix_conditioner(cond_dict)
-        return torch.cat(
-            [
-                self.prefix_conditioner(cond_dict),
-                self.prefix_conditioner(uncond_dict),
-            ]
-        )
+        uc = self.prefix_conditioner(uncond_dict)
+        return torch.cat([c, uc])
 
     @torch.inference_mode()
     def generate(

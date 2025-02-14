@@ -12,6 +12,7 @@ from taproot.util import (
     seed_everything,
     audio_to_bct_tensor,
     concatenate_audio,
+    normalize_jp_text,
     normalize_text,
     chunk_text,
 )
@@ -123,6 +124,7 @@ class ZonosHybridSpeechSynthesis(Task):
         texts: List[str],
         seed: int,
         language: str="en-us",
+        prefix_audio: Optional[torch.Tensor]=None,
         reference_audio: Optional[torch.Tensor]=None,
         enhance: bool=False,
         cross_fade_duration: float=0.15,
@@ -160,16 +162,8 @@ class ZonosHybridSpeechSynthesis(Task):
         import torch
         from .model import make_cond_dict
 
-        if reference_audio is not None:
-            reference_audio = reference_audio.to(self.device)
-            if len(reference_audio.shape) == 3:
-                reference_audio = reference_audio[0]
-            with log_duration("Extracting speaker embedding"):
-                _, speaker = self.pretrained.speaker_embedding(reference_audio)
-                speaker = speaker.unsqueeze(0)
-        else:
-            speaker = None
-
+        speaker: Optional[torch.Tensor] = None
+        prefix_codes: Optional[torch.Tensor] = None
         audios: List[torch.Tensor] = []
         num_texts = len(texts)
         unconditional_keys = set()
@@ -183,6 +177,19 @@ class ZonosHybridSpeechSynthesis(Task):
             emotion_other,
             emotion_neutral
         ]
+
+        if reference_audio is not None:
+            reference_audio = reference_audio.to(self.device)
+            if len(reference_audio.shape) == 3:
+                reference_audio = reference_audio[0]
+            with log_duration("Extracting speaker embedding"):
+                _, speaker = self.pretrained.speaker_embedding(reference_audio)
+                assert speaker is not None, "Could not extract speaker embedding."
+                speaker = speaker.unsqueeze(0)
+
+        if prefix_audio is not None:
+            prefix_audio = prefix_audio.to(self.device)
+            prefix_codes = self.pretrained.autoencoder.encode(prefix_audio)
 
         if skip_speaker or speaker is None:
             unconditional_keys.add("speaker")
@@ -210,8 +217,8 @@ class ZonosHybridSpeechSynthesis(Task):
             seed_everything(seed)
             conds = make_cond_dict(
                 text=text,
-                speaker=speaker,
                 language=language,
+                speaker=speaker,
                 emotion=emotions,
                 fmax=fmax,
                 pitch_std=pitch_std,
@@ -228,6 +235,7 @@ class ZonosHybridSpeechSynthesis(Task):
             with log_duration("Generating codes"):
                 codes = self.pretrained.model.generate(
                     prefix_conditioning=conditioning,
+                    audio_prefix_codes=prefix_codes,
                     cfg_scale=cfg_scale,
                     sampling_params={"min_p": min_p},
                 )
@@ -266,8 +274,10 @@ class ZonosHybridSpeechSynthesis(Task):
         self,
         *,
         text: Union[str, List[str]],
+        language: str="en-us",
         enhance: bool=False,
         seed: SeedType=None,
+        prefix_audio: Optional[AudioType]=None,
         reference_audio: Optional[AudioType]=None,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
@@ -305,8 +315,10 @@ class ZonosHybridSpeechSynthesis(Task):
         Generate speech from text and reference audio.
 
         :param text: The text to synthesize.
+        :param language: The language of the text.
         :param enhance: Whether to enhance the audio using the DeepFilterNet3 model.
         :param seed: The seed to use for random number generation.
+        :param prefix_audio: The prefix audio to use for synthesis.
         :param reference_audio: The reference audio to use for synthesis.
         :param cross_fade_duration: The duration of the cross-fade between chunks.
         :param punctuation_pause_duration: The duration of the pause after punctuation.
@@ -357,17 +369,36 @@ class ZonosHybridSpeechSynthesis(Task):
             if reference_audio.shape[1] > 1: # type: ignore[union-attr]
                 reference_audio = reference_audio.mean(dim=1, keepdim=True) # type: ignore[union-attr]
 
+        if prefix_audio is not None:
+            prefix_audio, prefix_sample_rate = audio_to_bct_tensor(
+                prefix_audio,
+                target_sample_rate=44100
+            )
+            assert prefix_audio is not None, "Could not convert prefix audio to tensor."
+            prefix_audio = trim_silence(prefix_audio)
+            rms = torch.sqrt(torch.mean(torch.square(prefix_audio))) # type: ignore[arg-type]
+            prefix_audio = prefix_audio * (target_rms / rms)
+
+            # Make sure the prefix audio is a single channel
+            if prefix_audio.shape[1] > 1: # type: ignore[union-attr]
+                prefix_audio = prefix_audio.mean(dim=1, keepdim=True) # type: ignore[union-attr]
+
         texts = [text] if isinstance(text, str) else text
         text_chunks = []
 
         for text in texts:
-            text = normalize_text(text)
+            if "ja" in language:
+                text = normalize_jp_text(text)
+            else:
+                text = normalize_text(text)
             text_chunks.extend(chunk_text(text, max_length=max_chunk_length))
 
         with torch.inference_mode():
             results = self.synthesize(
                 texts=text_chunks,
+                language=language,
                 seed=get_seed(seed),
+                prefix_audio=prefix_audio, # type: ignore[arg-type]
                 reference_audio=reference_audio, # type: ignore[arg-type]
                 enhance=enhance,
                 cross_fade_duration=cross_fade_duration,

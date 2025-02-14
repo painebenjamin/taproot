@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Optional, Tuple, List, Union, TYPE_CHECKING
 
 from taproot.constants import *
+from ..image_util import to_bchw_tensor
 
 if TYPE_CHECKING:
     import torch
+    from ...hinting import ImageType
 
 __all__ = [
     "SpatioTemporalPrompt",
@@ -17,6 +19,8 @@ class SpatioTemporalPrompt:
     """
     A class to store a prompt with optional position and time information.
     """
+    mask: Optional[torch.Tensor]
+
     def __init__(
         self,
         prompt: str,
@@ -24,6 +28,7 @@ class SpatioTemporalPrompt:
         weight: float = 1.0,
         position: Optional[Tuple[int, int, int, int]] = None,
         time: Optional[Tuple[int, int]] = None,
+        mask: Optional[ImageType] = None,
     ) -> None:
         """
         :param prompt: The prompt to store. Required.
@@ -37,6 +42,11 @@ class SpatioTemporalPrompt:
         self.position = position
         self.time = time
 
+        if mask is not None:
+            self.mask = to_bchw_tensor(mask, num_channels=1)[0]
+        else:
+            self.mask = None
+
 class EncodedPrompt:
     """
     A class to store the embeddings of a prompt, with optional position and time information.
@@ -45,12 +55,14 @@ class EncodedPrompt:
         self,
         embeddings: torch.Tensor,
         weight: float = 1.0,
+        mask: Optional[torch.Tensor] = None,
         position: Optional[Tuple[int, int, int, int]] = None,
         time: Optional[Tuple[int, int]] = None,
         negative_embeddings: Optional[torch.Tensor] = None,
         pooled_embeddings: Optional[torch.Tensor] = None,
         negative_pooled_embeddings: Optional[torch.Tensor] = None,
         space: IMAGE_SPACE_LITERAL = "pixel",
+        mask_space: IMAGE_SPACE_LITERAL = "pixel",
     ) -> None:
         """
         :param embeddings: The embeddings of the prompt. Required.
@@ -64,12 +76,52 @@ class EncodedPrompt:
         """
         self.embeddings = embeddings
         self.weight = weight
+        self.mask = mask
+        self.mask_space = mask_space
         self.position = position
         self.time = time
         self.negative_embeddings = negative_embeddings
         self.pooled_embeddings = pooled_embeddings
         self.negative_pooled_embeddings = negative_pooled_embeddings
         self.space = space
+
+    def get_mask(
+        self,
+        position: Optional[Tuple[int, int, int, int]] = None,
+        space: IMAGE_SPACE_LITERAL = "latent",
+        latent_scale_factor: int = 8,
+    ) -> Optional[torch.Tensor]:
+        """
+        Get the mask of the prompt.
+
+        :return: The mask of the prompt
+        """
+        import torch
+
+        if self.mask is None:
+            return None
+
+        if space == "latent" and self.mask_space == "pixel":
+            mask = torch.nn.functional.interpolate(
+                self.mask.unsqueeze(0),
+                scale_factor=1 / latent_scale_factor,
+                mode="nearest"
+            ).squeeze(0)
+        elif space == "pixel" and self.mask_space == "latent":
+            mask = torch.nn.functional.interpolate(
+                self.mask.unsqueeze(0),
+                scale_factor=latent_scale_factor,
+                mode="nearest"
+            ).squeeze(0)
+        else:
+            mask = self.mask
+
+        if position is not None:
+            # Crop the mask to the position
+            left, top, right, bottom = position
+            mask = mask[:, top:bottom, left:right]
+
+        return mask # type: ignore[no-any-return]
 
     def get_position_overlap_ratio(
         self,
@@ -150,6 +202,21 @@ class EncodedPrompts:
         self.do_perturbed_attention_guidance = do_perturbed_attention_guidance
         self.prompts = list(prompts)
 
+    def scale_prompt_masks(self, height: int, width: int) -> None:
+        """
+        Scale the masks of the prompts by the given scale factor.
+
+        :param scale_factor: The scale factor to apply.
+        """
+        import torch
+        for prompt in self.prompts:
+            if prompt.mask is not None:
+                prompt.mask = torch.nn.functional.interpolate(
+                    prompt.mask.unsqueeze(0),
+                    size=(height, width),
+                    mode="nearest"
+                ).squeeze(0)
+
     def add_prompt(self, prompt: EncodedPrompt) -> None:
         """
         Add a prompt to the list of prompts.
@@ -169,6 +236,7 @@ class EncodedPrompts:
     ) -> Tuple[
         torch.Tensor,
         Optional[torch.Tensor],
+        Optional[torch.Tensor],
     ]:
         """
         Get the embeddings of the prompts that apply to the given position and time.
@@ -180,10 +248,11 @@ class EncodedPrompts:
 
         :param position: The position of the embeddings in the format (left, right, top, bottom). Defaults to None.
         :param time: The time of the embeddings in the format (start_frame, end_frame). Defaults to None.
-        :return: The embeddings, negative embeddings, pooled embeddings, and negative pooled embeddings.
+        :return: The embeddings, pooled embeddings, and mask of the prompts that apply to the given position and time.
         """
         import torch
 
+        masks: List[Optional[torch.Tensor]] = []
         embeddings: List[Tuple[torch.Tensor, float]] = []
         negative_embeddings: List[Tuple[torch.Tensor, float]] = []
         pooled_embeddings: List[Tuple[torch.Tensor, float]] = []
@@ -191,7 +260,11 @@ class EncodedPrompts:
 
         for i, prompt in enumerate(self.prompts):
             if position is not None:
-                overlap_ratio = prompt.get_position_overlap_ratio(*position, space=space, latent_scale_factor=latent_scale_factor)
+                overlap_ratio = prompt.get_position_overlap_ratio(
+                    *position,
+                    space=space,
+                    latent_scale_factor=latent_scale_factor
+                )
                 if overlap_ratio == 0.0:
                     continue
             else:
@@ -207,6 +280,7 @@ class EncodedPrompts:
             weight = overlap_ratio * time_overlap_ratio * prompt.weight
 
             embeddings.append((prompt.embeddings, weight))
+            masks.append(prompt.get_mask(position=position, space=space, latent_scale_factor=latent_scale_factor))
             if prompt.negative_embeddings is not None:
                 negative_embeddings.append((prompt.negative_embeddings, weight))
             if prompt.pooled_embeddings is not None:
@@ -217,89 +291,114 @@ class EncodedPrompts:
         if not embeddings:
             raise ValueError("No embeddings found for the given position; you should have at least one set of embeddings that always applies.")
 
+        has_mask = any(mask is not None for mask in masks)
         total_embeddings_weight = sum(weight for _, weight in embeddings)
-        embeddings = torch.stack([ # type: ignore[assignment]
+
+        if has_mask:
+            non_empty_masks = [mask for mask in masks if mask is not None]
+            mask_shape = non_empty_masks[0].shape
+            mask_type = non_empty_masks[0].dtype
+            assert all(mask.shape == mask_shape for mask in non_empty_masks[1:]), "All masks must have the same shape."
+            masks_tensor = torch.stack([
+                mask if mask is not None
+                else torch.ones(mask_shape, dtype=mask_type)
+                for mask in masks
+            ])
+        else:
+            masks_tensor = None
+
+        embeddings_tensor = torch.stack([
             embedding * weight
             for embedding, weight
             in embeddings
-        ]).sum(dim=0) / total_embeddings_weight
+        ])
+        if not has_mask:
+            embeddings_tensor = embeddings_tensor.sum(dim=0) / total_embeddings_weight
 
+        negative_embeddings_tensor: Optional[torch.Tensor] = None
         if negative_embeddings:
             total_negative_embeddings_weight = sum(weight for _, weight in negative_embeddings)
-            negative_embeddings = torch.stack([ # type: ignore[assignment]
+            negative_embeddings_tensor = torch.stack([
                 embedding * weight
                 for embedding, weight
                 in negative_embeddings
-            ]).sum(dim=0) / total_negative_embeddings_weight
-        else:
-            negative_embeddings = None # type: ignore[assignment]
+            ])
+            if not has_mask:
+                negative_embeddings_tensor = negative_embeddings_tensor.sum(dim=0) / total_negative_embeddings_weight
 
+        pooled_embeddings_tensor: Optional[torch.Tensor] = None
         if pooled_embeddings:
             total_pooled_embeddings_weight = sum(weight for _, weight in pooled_embeddings)
-            pooled_embeddings = torch.stack([ # type: ignore[assignment]
+            pooled_embeddings_tensor = torch.stack([ 
                 embedding * weight
                 for embedding, weight
                 in pooled_embeddings
-            ]).sum(dim=0) / total_pooled_embeddings_weight
-        else:
-            pooled_embeddings = None # type: ignore[assignment]
+            ])
+            if not has_mask:
+                pooled_embeddings_tensor = pooled_embeddings_tensor.sum(dim=0) / total_pooled_embeddings_weight
 
+        negative_pooled_embeddings_tensor: Optional[torch.Tensor] = None
         if negative_pooled_embeddings:
             total_negative_pooled_embeddings_weight = sum(weight for _, weight in negative_pooled_embeddings)
-            negative_pooled_embeddings = torch.stack([ # type: ignore[assignment]
+            negative_pooled_embeddings_tensor = torch.stack([
                 embedding * weight
                 for embedding, weight
                 in negative_pooled_embeddings
-            ]).sum(dim=0) / total_negative_pooled_embeddings_weight
-        else:
-            negative_pooled_embeddings = None # type: ignore[assignment]
+            ])
+            if not has_mask:
+                negative_pooled_embeddings_tensor = negative_pooled_embeddings_tensor.sum(dim=0) / total_negative_pooled_embeddings_weight
 
+        stack_dim = 1 if has_mask else 0
         if self.do_classifier_free_guidance:
-            if negative_embeddings is None:
-                negative_embeddings = torch.zeros_like(embeddings)
-            if pooled_embeddings is not None and negative_pooled_embeddings is None:
-                negative_pooled_embeddings = torch.zeros_like(pooled_embeddings)
+            if negative_embeddings_tensor is None:
+                negative_embeddings_tensor = torch.zeros_like(embeddings_tensor)
+            if pooled_embeddings_tensor is not None and negative_pooled_embeddings_tensor is None:
+                negative_pooled_embeddings_tensor = torch.zeros_like(pooled_embeddings_tensor)
 
             if self.do_perturbed_attention_guidance:
-                embeddings = torch.cat([ # type: ignore[assignment]
-                    negative_embeddings, # type: ignore[list-item]
-                    embeddings, # type: ignore[list-item]
-                    embeddings # type: ignore[list-item]
-                ], dim=0)
-                if pooled_embeddings is not None:
-                    pooled_embeddings = torch.cat([ # type: ignore[assignment]
-                        negative_pooled_embeddings, # type: ignore[list-item]
-                        pooled_embeddings, # type: ignore[list-item]
-                        pooled_embeddings # type: ignore[list-item]
-                    ], dim=0)
+                embeddings_tensor = torch.cat([
+                    negative_embeddings_tensor,
+                    embeddings_tensor,
+                    embeddings_tensor
+                ], dim=stack_dim)
+                if pooled_embeddings_tensor is not None:
+                    pooled_embeddings_tensor = torch.cat([
+                        negative_pooled_embeddings_tensor, # type: ignore[list-item]
+                        pooled_embeddings_tensor,
+                        pooled_embeddings_tensor
+                    ], dim=stack_dim)
             else:
-                embeddings = torch.cat([ # type: ignore[assignment]
-                    negative_embeddings, # type: ignore[list-item]
-                    embeddings # type: ignore[list-item]
-                ], dim=0)
-                if pooled_embeddings is not None:
-                    pooled_embeddings = torch.cat([ # type: ignore[assignment]
-                        negative_pooled_embeddings, # type: ignore[list-item]
-                        pooled_embeddings # type: ignore[list-item]
-                    ], dim=0)
+                embeddings_tensor = torch.cat([
+                    negative_embeddings_tensor,
+                    embeddings_tensor
+                ], dim=stack_dim)
+                if pooled_embeddings_tensor is not None:
+                    pooled_embeddings_tensor = torch.cat([
+                        negative_pooled_embeddings_tensor, # type: ignore[list-item]
+                        pooled_embeddings_tensor
+                    ], dim=stack_dim)
         elif self.do_perturbed_attention_guidance:
-            embeddings = torch.cat([ # type: ignore[assignment]
-                embeddings, # type: ignore[list-item]
-                embeddings # type: ignore[list-item]
-            ], dim=0)
-            if pooled_embeddings is not None:
-                pooled_embeddings = torch.cat([ # type: ignore[assignment]
-                    pooled_embeddings, # type: ignore[list-item]
-                    pooled_embeddings # type: ignore[list-item]
-                ], dim=0)
+            embeddings_tensor = torch.cat([
+                embeddings_tensor,
+                embeddings_tensor
+            ], dim=stack_dim)
+            if pooled_embeddings_tensor is not None:
+                pooled_embeddings_tensor = torch.cat([
+                    pooled_embeddings_tensor,
+                    pooled_embeddings_tensor
+                ], dim=stack_dim)
 
         if device is not None:
-            embeddings = embeddings.to(device, dtype=dtype) # type: ignore[attr-defined]
-            if pooled_embeddings is not None:
-                pooled_embeddings = pooled_embeddings.to(device, dtype=dtype) # type: ignore[attr-defined]
+            embeddings_tensor = embeddings_tensor.to(device, dtype=dtype)
+            if pooled_embeddings_tensor is not None:
+                pooled_embeddings_tensor = pooled_embeddings_tensor.to(device, dtype=dtype)
+            if masks_tensor is not None:
+                masks_tensor = masks_tensor.to(device, dtype=dtype)
         elif dtype is not None:
-            embeddings = embeddings.to(dtype=dtype) # type: ignore[attr-defined]
-            if pooled_embeddings is not None:
-                pooled_embeddings = pooled_embeddings.to(dtype=dtype) # type: ignore[attr-defined]
+            embeddings_tensor = embeddings_tensor.to(dtype=dtype)
+            if pooled_embeddings_tensor is not None:
+                pooled_embeddings_tensor = pooled_embeddings_tensor.to(dtype=dtype)
+            if masks_tensor is not None:
+                masks_tensor = masks_tensor.to(dtype=dtype)
 
-        return embeddings, pooled_embeddings # type: ignore[return-value]
+        return embeddings_tensor, pooled_embeddings_tensor, masks_tensor

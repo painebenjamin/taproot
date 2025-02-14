@@ -145,11 +145,36 @@ def get_diffusers_scheduler_by_name(
         if config is None:
             return EulerDiscreteScheduler(use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
         return EulerDiscreteScheduler.from_config(config, use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
-    elif name == "flow_match_euler_discrete":
+    elif name in [
+        "flow_match_euler_discrete",
+        "flow_match_euler_discrete_dynamic",
+        "flow_match_euler_discrete_karras",
+        "flow_match_euler_discrete_karras_dynamic",
+        "flow_match_euler_discrete_beta",
+        "flow_match_euler_discrete_beta_dynamic",
+        "flow_match_euler_discrete_exponential",
+        "flow_match_euler_discrete_exponential_dynamic",
+    ]:
         from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+        use_karras_sigmas = name in ["flow_match_euler_discrete_karras", "flow_match_euler_discrete_karras_dynamic"]
+        use_beta_sigmas = name in ["flow_match_euler_discrete_beta", "flow_match_euler_discrete_beta_dynamic"]
+        use_exponential_sigmas = name in ["flow_match_euler_discrete_exponential", "flow_match_euler_discrete_exponential_dynamic"]
+        use_dynamic_shifting = name in ["flow_match_euler_discrete_dynamic", "flow_match_euler_discrete_karras_dynamic", "flow_match_euler_discrete_beta_dynamic", "flow_match_euler_discrete_exponential_dynamic"]
+
         if config is None:
-            return FlowMatchEulerDiscreteScheduler() # type: ignore[no-any-return]
-        return FlowMatchEulerDiscreteScheduler.from_config(config) # type: ignore[no-any-return]
+            return FlowMatchEulerDiscreteScheduler( # type: ignore[no-any-return]
+                use_karras_sigmas=use_karras_sigmas,
+                use_beta_sigmas=use_beta_sigmas,
+                use_exponential_sigmas=use_exponential_sigmas,
+                use_dynamic_shifting=use_dynamic_shifting
+            )
+        return FlowMatchEulerDiscreteScheduler.from_config( # type: ignore[no-any-return]
+            config,
+            use_karras_sigmas=use_karras_sigmas,
+            use_beta_sigmas=use_beta_sigmas,
+            use_exponential_sigmas=use_exponential_sigmas,
+            use_dynamic_shifting=use_dynamic_shifting
+        )
     elif name == "flow_match_heun_discrete":
         from diffusers.schedulers.scheduling_flow_match_heun_discrete import FlowMatchHeunDiscreteScheduler
         if config is None:

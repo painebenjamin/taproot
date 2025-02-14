@@ -34,7 +34,7 @@ class AttributionMixin:
     license_hosting: Optional[bool] = None  # Whether the license allows hosting
 
     @classmethod
-    def get_author_citation(cls) -> str:
+    def get_author_citation(cls, html: bool=False) -> str:
         """
         Get the author citation.
         """
@@ -46,7 +46,7 @@ class AttributionMixin:
                 if len(cls.author_additional) == 1:
                    author_string += f"and {cls.author_additional[0]}"
                 else:
-                    author_string += f", {', '.join(cls.author_additional[:-1])} and {cls.author_additional[-1]}"
+                   author_string += f", {', '.join(cls.author_additional[:-1])} and {cls.author_additional[-1]}"
 
         if cls.author_affiliations:
             if author_string:
@@ -72,41 +72,54 @@ class AttributionMixin:
         if cls.author_url:
             if author_string:
                 author_string += "\n"
-            author_string += cls.author_url
+            if html:
+                author_string += f'<a href="{cls.author_url}" target="_blank">{cls.author_url}</a>'
+            else:
+                author_string += cls.author_url
 
         if cls.finetune_author:
             if author_string:
                 author_string += "\n"
-            author_string += f"Finetuned by {cls.finetune_author}"
-            if cls.finetune_author_url:
-                author_string += f" ({cls.finetune_author_url})"
+            author_string += "Finetuned by "
+            if html and cls.finetune_author_url:
+                author_string += f"<a href='{cls.finetune_author_url}' target='_blank'>{cls.finetune_author}</a>"
+            elif cls.finetune_author_url:
+                author_string += f"{cls.finetune_author} ({cls.finetune_author_url})"
 
         if cls.implementation_author:
             if author_string:
                 author_string += "\n"
-            author_string += f"Implementation by {cls.implementation_author}"
-            if cls.implementation_author_url:
-                author_string += f" ({cls.implementation_author_url})"
+            author_string += f"Implementation by "
+            if html and cls.implementation_author_url:
+                author_string += f"<a href='{cls.implementation_author_url}' target='_blank'>{cls.implementation_author}</a>"
+            elif cls.implementation_author_url:
+                author_string += f"{cls.implementation_author} ({cls.implementation_author_url})"
 
         return author_string
 
     @classmethod
-    def get_license_citation(cls) -> str:
+    def get_license_citation(cls, html: bool=False) -> str:
         """
         Get the license citation.
         """
-        license_string = ""
-
         if cls.license:
             if cls.license in LICENSE_NAMES:
-                license_string += LICENSE_NAMES[cls.license]
+                license_name = LICENSE_NAMES[cls.license]
             else:
-                license_string += cls.license
+                license_name = cls.license
+
+            license_url = None
             if cls.license_url:
-                license_string += f" ({cls.license_url})"
+                license_url = cls.license_url
             elif cls.license in LICENSE_URLS:
-                license_string += f" ({LICENSE_URLS[cls.license]})"
-        return license_string
+                license_url = LICENSE_URLS[cls.license]
+
+            if license_url:
+                if html:
+                    return f'<a href="{license_url}" target="_blank">{license_name}</a>'
+                return f"{license_name} ({license_url})"
+            return license_name
+        return ""
 
     @classmethod
     def get_license_allowances(

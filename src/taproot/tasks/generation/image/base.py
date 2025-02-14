@@ -425,6 +425,7 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
         accepts_output_type = "output_type" in invoke_signature.parameters
         accepts_output_format = "output_format" in invoke_signature.parameters
         accepts_negative_prompt = "negative_prompt" in invoke_signature.parameters
+        accepts_true_cfg_scale = "true_cfg_scale" in invoke_signature.parameters
 
         if accepts_output_type:
             kwargs["output_type"] = "latent" if output_latent else "pt"
@@ -441,6 +442,10 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
 
         if accepts_negative_prompt and kwargs.get("negative_prompt", None) is None:
             kwargs["negative_prompt"] = self.default_negative_prompt
+
+        if accepts_true_cfg_scale and kwargs.get("true_cfg_scale", None) is None and self.do_true_cfg:
+            # Use guidance scale for true CFG scale
+            kwargs["true_cfg_scale"] = guidance_scale
 
         # If there are IP adapter images, we computen their embeddings here
         if ip_adapter_image is not None:
@@ -481,18 +486,22 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 accepts_negative_prompt=accepts_negative_prompt,
                 spatial_prompts=spatial_prompts,
             )
-            encoded_prompts.do_classifier_free_guidance = is_cfg
-            encoded_prompts.do_perturbed_attention_guidance = is_pag
+            if encoded_prompts is not None:
+                encoded_prompts.do_classifier_free_guidance = is_cfg
+                encoded_prompts.do_perturbed_attention_guidance = is_pag
+
             self.enable_multidiffusion(
                 spatial_prompts=encoded_prompts,
                 mask_type=multidiffusion_mask_type,
-                tile_size=None if multidiffusion_tile_size is None else int(multidiffusion_tile_size // 8),
-                tile_stride=None if multidiffusion_tile_stride is None else int(multidiffusion_tile_stride // 8),
+                tile_size=None if multidiffusion_tile_size is None else int(multidiffusion_tile_size // (1 if self.is_packed_latent_space else 8)),
+                tile_stride=None if multidiffusion_tile_stride is None else int(multidiffusion_tile_stride // (1 if self.is_packed_latent_space else 8)),
             )
+        else:
+            encoded_prompts = None
 
         # Finally, we invoke the pipeline
         num_images_per_prompt = kwargs.get("num_images_per_prompt", 1)
-        if "prompt_embeds" in kwargs:
+        if kwargs.get("prompt_embeds", None) is not None:
             batch_size = kwargs["prompt_embeds"].shape[0]
         elif "prompt" in kwargs and isinstance(kwargs["prompt"], (list, tuple)):
             batch_size = len(kwargs["prompt"])
@@ -582,11 +591,15 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                 i2i_signature = inspect.signature(pipeline.__call__) # type: ignore[operator]
                 accepts_width = "width" in i2i_signature.parameters
                 accepts_height = "height" in i2i_signature.parameters
+                accepts_true_cfg = "true_cfg_scale" in i2i_signature.parameters
+                accepts_negative_prompt = "negative_prompt" in i2i_signature.parameters
 
                 result = scale_tensor(
                     result,
                     scale_factor=1.0 + (highres_fix_factor or 0.0)
                 ).clamp(0., 1.)
+
+                b, c, h, w = result.shape
 
                 if kwargs.get("mask_image", None) is not None:
                     kwargs["mask_image"] = scale_tensor(
@@ -594,10 +607,18 @@ class DiffusersTextToImageTask(DiffusersPipelineTask):
                         scale_factor=1.0 + (highres_fix_factor or 0.0)
                     ).clamp(0., 1.)
 
+                if encoded_prompts is not None:
+                    encoded_prompts.scale_prompt_masks(height=h, width=w)
+
                 if accepts_width and accepts_height:
-                    b, c, h, w = result.shape
                     kwargs["width"] = w
                     kwargs["height"] = h
+
+                if not accepts_negative_prompt:
+                    kwargs.pop("negative_prompt", None)
+                    kwargs.pop("negative_prompt_embeds", None)
+                if not accepts_true_cfg:
+                    kwargs.pop("true_cfg_scale", None)
 
                 num_highres_steps = max(1, int(num_inference_steps * (highres_fix_strength or 0.0)))
                 self.num_steps = num_highres_steps

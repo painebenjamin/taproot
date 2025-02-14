@@ -66,7 +66,9 @@ class FluxBase(DiffusersTextToImageTask):
     """Diffusers Metadata"""
     model_type = "flux"
     use_compel = False
-    use_multidiffusion = False
+    use_multidiffusion = True
+    is_packed_latent_space = True
+    multidiffusion_input_keys = ["hidden_states"]
 
     @classmethod
     def get_text_to_image_pipeline_class(cls) -> Type[DiffusionPipeline]:

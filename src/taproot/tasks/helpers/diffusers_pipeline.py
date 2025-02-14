@@ -26,6 +26,7 @@ from taproot.util import (
     maybe_use_tqdm,
     inject_skip_init,
     iterate_state_dict,
+    scale_tensor,
     wrap_module_forward_dtype,
     unwrap_module_forward_dtype,
     SpatioTemporalPrompt,
@@ -69,6 +70,8 @@ class DiffusersPipelineTask(Task):
     customization of the pipeline and the model handling.
     """
     use_compel: bool = True
+    do_true_cfg: bool = False # For models with embedded guidance, we can enable proper classifier-free guidance (e.g. schnell)
+    is_packed_latent_space: bool = False
     wrap_dtype_mismatch: bool = False
     model_type: Optional[str] = None
     autoencoding_model_name: Optional[str] = None
@@ -78,6 +81,7 @@ class DiffusersPipelineTask(Task):
     default_negative_prompt: Optional[str] = "lowres, blurry, text, error, cropped, worst quality, low quality, jpeg artifacts, watermark, signature"
     model_prompt: Optional[str] = None
     model_negative_prompt: Optional[str] = None
+    multidiffusion_input_keys: Optional[List[str]] = None
 
     """Configurable pretrained models"""
     pretrained_lora: Optional[Dict[str, Type[PretrainedLoRA]]] = None
@@ -587,6 +591,8 @@ class DiffusersPipelineTask(Task):
             spatial_prompts=spatial_prompts,
             tile_size=tile_size,
             tile_stride=tile_stride,
+            is_packed=self.is_packed_latent_space,
+            input_keys=self.multidiffusion_input_keys,
             use_tqdm=use_tqdm,
             mask_type=mask_type,
         )
@@ -734,8 +740,21 @@ class DiffusersPipelineTask(Task):
         Compiles prompts using compel.
         """
         import torch
-
         num_prompts = len(prompts)
+        if num_prompts == 0:
+            logger.warning("No prompts found - compel will not be applied.")
+            return None
+
+        prompts = [
+            prompt if isinstance(prompt, list) else [prompt] # type: ignore[list-item]
+            for prompt in prompts
+        ]
+
+        if negative_prompts is not None:
+            negative_prompts = [
+                negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] # type: ignore[list-item]
+                for negative_prompt in negative_prompts
+            ]
 
         num_negative_prompts = 0 if negative_prompts is None else len(negative_prompts)
         num_text_encoders = 0
@@ -998,10 +1017,13 @@ class DiffusersPipelineTask(Task):
         clip_skip: Optional[int]=None,
         max_sequence_length: Optional[int]=None,
         spatial_prompts: Optional[List[SpatioTemporalPrompt]]=None,
-    ) -> EncodedPrompts:
+    ) -> Optional[EncodedPrompts]:
         """
         Get encoded spatial prompts.
         """
+        if spatial_prompts is None and kwargs.get("prompt_embeds", None) is None:
+            return None
+
         # Instantiate holder
         encoded_prompts = EncodedPrompts()
 
@@ -1015,6 +1037,14 @@ class DiffusersPipelineTask(Task):
                     clip_skip=clip_skip,
                     max_sequence_length=max_sequence_length,
                 )
+                if spatial_prompt.mask is not None:
+                    if "height" in kwargs and "width" in kwargs:
+                        height = kwargs["height"]
+                        width = kwargs["width"]
+                        spatial_prompt.mask = scale_tensor(
+                            spatial_prompt.mask,
+                            size=(height, width),
+                        )
                 encoded_prompt = EncodedPrompt(
                     embeddings=prompt_embeds,
                     pooled_embeddings=pooled_prompt_embeds,
@@ -1022,6 +1052,7 @@ class DiffusersPipelineTask(Task):
                     negative_pooled_embeddings=negative_pooled_prompt_embeds,
                     position=spatial_prompt.position,
                     weight=spatial_prompt.weight,
+                    mask=spatial_prompt.mask,
                 )
                 encoded_prompts.add_prompt(encoded_prompt)
 
@@ -1045,6 +1076,7 @@ class DiffusersPipelineTask(Task):
                 weight=GLOBAL_PROMPT_WEIGHT,
             )
             encoded_prompts.add_prompt(base_prompt)
+
         return encoded_prompts
 
     def get_spatial_prompts(

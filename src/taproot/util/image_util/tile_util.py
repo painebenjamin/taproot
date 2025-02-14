@@ -35,9 +35,9 @@ def image_tiles(
     """
     Gets image tiles using sliding windows.
     """
-    from ..misc_util import sliding_windows
+    from ..misc_util import sliding_2d_windows
     width, height = image.size
-    for x0, x1, y0, y1 in sliding_windows(width, height, tile_size, tile_stride):
+    for x0, x1, y0, y1 in sliding_2d_windows(width, height, tile_size, tile_stride):
         cropped = image.crop((x0, y0, x1, y1))
         setattr(cropped, "coordinates", (x0, y0, x1, y1))
         yield cropped

@@ -116,8 +116,8 @@ def catalog(
                         tabulate.tabulate(
                             [
                                 ["Name", task_class.get_display_name()],
-                                ["Author", task_class.get_author_citation().replace("\n", "<br />")],
-                                ["License", task_class.get_license_citation().replace("\n", "<br />")],
+                                ["Author", task_class.get_author_citation(html=True).replace("\n", "<br />")],
+                                ["License", task_class.get_license_citation(html=True).replace("\n", "<br />")],
                                 ["Files", model_files],
                                 ["Minimum VRAM", vram_label],
                             ],
@@ -659,8 +659,9 @@ def echo(
 @click.option("--local", "-l", type=bool, default=False, help="Additionally run a local dispatcher while running the overseer.", show_default=True, is_flag=True)
 @click.option("--local-address", "-la", type=str, default=DEFAULT_LOCAL_DISPATCHER_ADDRESS, help="Local dispatcher address to use.", show_default=True)
 @click.option("--local-config", "-lc", type=click.Path(exists=True), default=None, help="Local dispatcher configuration file to use. Overrides other dispatcher-related configuration.", show_default=True)
-@click.option("--local-max-workers", "-lw", type=int, default=1, help="Maximum number of workers for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
-@click.option("--local-queue-size", "-lq", type=int, default=1, help="Maximum queue size for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--max-workers", "-mw", type=int, default=1, help="Maximum number of workers for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--queue-size", "-qs", type=int, default=1, help="Maximum queue size for executors when using local mode. When --local/-l is not passed, has no effect.", show_default=True)
+@click.option("--executor-protocol", "-ep", type=str, default=DEFAULT_PROTOCOL, help="Protocol to use for local dispatcher. When --local/-l is not passed, has no effect. Will be overriden by `--local-config/-lc`.", show_default=True)
 @click.option("--dispatcher", "-d", multiple=True, type=str, help="Dispatcher address(es) to register after starting.", show_default=True)
 @context_options()
 @server_options()
@@ -668,8 +669,9 @@ def overseer(
     local: bool=False,
     local_address: str=DEFAULT_LOCAL_DISPATCHER_ADDRESS,
     local_config: Optional[str]=None,
-    local_max_workers: int=1,
-    local_queue_size: int=1,
+    max_workers: int=1,
+    queue_size: int=1,
+    executor_protocol: PROTOCOL_LITERAL=DEFAULT_PROTOCOL,
     dispatcher: List[str]=[],
     address: str=DEFAULT_ADDRESS,
     config: Optional[str]=None,
@@ -735,8 +737,9 @@ def overseer(
                         local_server.port = 0
                     else:
                         local_server.address = local_address
-                    local_server.max_workers = local_max_workers
-                    local_server.executor_queue_size = local_queue_size
+                    local_server.max_workers = max_workers
+                    local_server.executor_queue_size = queue_size
+                    local_server.executor_protocol = executor_protocol
 
                 if save_dir is not None:
                     local_server.save_dir = save_dir
@@ -770,12 +773,14 @@ def overseer(
 @click.option("--overseer", type=str, help="Overseer address to register with.", multiple=True, show_default=True)
 @click.option("--max-workers", "-w", type=int, default=None, help="Maximum number of workers for executors.", show_default=True)
 @click.option("--queue-size", "-qs", type=int, default=None, help="Maximum queue size for executors.", show_default=True)
+@click.option("--executor-protocol", "-ep", type=str, default=DEFAULT_PROTOCOL, help="Executor protocol to use.", show_default=True)
 @server_options(default_address=DEFAULT_DISPATCHER_ADDRESS)
 @context_options()
 def dispatcher(
     overseer: List[str]=[],
     max_workers: Optional[int]=None,
     queue_size: Optional[int]=None,
+    executor_protocol: PROTOCOL_LITERAL=DEFAULT_PROTOCOL,
     address: str=DEFAULT_DISPATCHER_ADDRESS,
     config: Optional[str]=None,
     model_dir: str=DEFAULT_MODEL_DIR,
@@ -816,6 +821,8 @@ def dispatcher(
                 server.max_workers = max_workers
             if queue_size is not None:
                 server.executor_queue_size = queue_size
+            if executor_protocol is not None:
+                server.executor_protocol = executor_protocol
             if save_dir is not None:
                 server.save_dir = save_dir
             if model_dir is not None:

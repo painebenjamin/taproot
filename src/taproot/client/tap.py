@@ -959,6 +959,7 @@ class Tap(ConfigMixin):
         task_config: Optional[Dict[str, TaskQueueConfigDict]]=None,
         static_executors: List[ExecutorConfigDict]=[],
         task_auto_executors: Optional[Dict[str, int]]=None,
+        local_executor_protocol: PROTOCOL_LITERAL="tcp",
     ) -> AsyncIterator[Tap]:
         """
         Returns the default tap instance.
@@ -966,7 +967,7 @@ class Tap(ConfigMixin):
         from ..server import Dispatcher
 
         local_executor_config: ExecutorConfigDict = {
-            "protocol": "tcp",
+            "protocol": local_executor_protocol,
             "max_idle_time": max_idle_time,
         }
 
@@ -988,7 +989,7 @@ class Tap(ConfigMixin):
                     task_name, _, task_model = task_key.partition(":")
                 for i in range(num_workers):
                     static_executors.append({
-                        "protocol": "tcp",
+                        "protocol": local_executor_protocol,
                         "host": host,
                         "port": find_free_port(),
                         "queue_config": {

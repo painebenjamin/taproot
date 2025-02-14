@@ -39,6 +39,8 @@ def concatenate_audio(
     audio: List[Tensor],
     cross_fade_samples: Optional[int]=None,
     cross_fade_duration: Optional[float]=None,
+    pause_samples: Optional[int]=None,
+    pause_duration: Optional[float]=None,
     sample_rate: Optional[int]=None,
 ) -> Tensor:
     """
@@ -75,13 +77,20 @@ def concatenate_audio(
         raise ValueError("At least one audio must be provided.")
     elif num_audio == 1:
         return audio[0]
+
     if cross_fade_samples is None and cross_fade_duration is not None:
         assert sample_rate is not None, "sample_rate must be provided if cross_fade_duration is provided."
         cross_fade_samples = int(cross_fade_duration * sample_rate)
     if cross_fade_samples is None:
         cross_fade_samples = 0
 
-    if cross_fade_samples <= 0:
+    if pause_samples is None and pause_duration is not None:
+        assert sample_rate is not None, "sample_rate must be provided if pause_duration is provided."
+        pause_samples = int(pause_duration * sample_rate)
+    if pause_samples is None:
+        pause_samples = 0
+
+    if cross_fade_samples <= 0 and pause_samples <= 0:
         # No fading necessary, just concatenate
         return torch.cat(audio, dim=-1)
 
@@ -93,11 +102,13 @@ def concatenate_audio(
             total_samples += wav_samples
         else:
             cross_fade_samples = min(cross_fade_samples, wav_samples)
-            total_samples += wav_samples - cross_fade_samples
+            total_samples += wav_samples - cross_fade_samples + pause_samples
 
     audio_shape: Tuple[int, ...] = (total_samples,)
+    pause_shape: Tuple[int, ...] = (pause_samples,)
     if audio[0].ndim == 2:
         audio_shape = (audio[0].size(0), total_samples)
+        pause_shape = (audio[0].size(0), pause_samples)
 
     # Allocate memory for the concatenated audio
     concatenated_audio = torch.zeros(
@@ -109,18 +120,25 @@ def concatenate_audio(
     # Concatenate audio with cross fade
     start = 0
     for i, wav in enumerate(audio):
+        if i > 0 and pause_samples > 0:
+            wav = torch.cat([
+                torch.zeros(pause_shape, dtype=wav.dtype, device=wav.device),
+                wav
+            ], dim=-1)
+
         wav_samples = wav.size(-1)
         wav_mask = torch.ones_like(wav).to(torch.float32)
         fade_samples_start = 0
         fade_samples_end = 0
 
-        if i > 0:
-            fade_samples_start = min(cross_fade_samples, wav_samples)
-            wav_mask[..., :fade_samples_start] = torch.linspace(0, 1, fade_samples_start + 2, device=wav.device)[1:-1]
+        if cross_fade_samples > 0:
+            if i > 0:
+                fade_samples_start = min(cross_fade_samples, wav_samples)
+                wav_mask[..., :fade_samples_start] = torch.linspace(0, 1, fade_samples_start + 2, device=wav.device)[1:-1]
 
-        if i < num_audio - 1:
-            fade_samples_end = min(audio[i + 1].size(-1), cross_fade_samples)
-            wav_mask[..., -fade_samples_end:] = torch.linspace(1, 0, fade_samples_end + 2, device=wav.device)[1:-1]
+            if i < num_audio - 1:
+                fade_samples_end = min(audio[i + 1].size(-1), cross_fade_samples)
+                wav_mask[..., -fade_samples_end:] = torch.linspace(1, 0, fade_samples_end + 2, device=wav.device)[1:-1]
 
         end = start + wav_samples
         concatenated_audio[..., start:end] = concatenated_audio[..., start:end] + (wav * wav_mask)

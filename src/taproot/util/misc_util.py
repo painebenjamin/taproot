@@ -449,7 +449,41 @@ def get_step_iterator(
         yield item
         callback(True)
 
-def sliding_windows(
+def sliding_1d_windows(
+    length: int,
+    tile_size: int,
+    tile_stride: int
+) -> List[Tuple[int, int]]:
+    """
+    Gets windows over a length using a square tile.
+
+    :param length: The length of the area.
+    :param tile_size: The size of the tile.
+    :param tile_stride: The stride of the tile.
+    """
+    coords: List[Tuple[int, int]] = []
+    for start in range(0, length - tile_size + 1, tile_stride):
+        coords.append((start, start + tile_size))
+    if (length - tile_size) % tile_stride != 0:
+        coords.append((length - tile_size, length))
+    return coords
+
+def sliding_1d_window_count(
+    length: int,
+    tile_size: int,
+    tile_stride: int
+) -> int:
+    """
+    Calculate the number of tiles needed to cover a length.
+
+    :param length: The length of the area.
+    :param tile_size: The size of the tile.
+    :param tile_stride: The stride of the tile.
+    :return: The number of tiles needed to cover the area.
+    """
+    return ceil((length - tile_size) / tile_stride + 1)
+
+def sliding_2d_windows(
     height: int,
     width: int,
     tile_size: Union[int, Tuple[int, int]],
@@ -488,7 +522,7 @@ def sliding_windows(
 
     return coords
 
-def sliding_window_count(
+def sliding_2d_window_count(
 	height: int,
     width: int,
     tile_size: Union[int, Tuple[int, int]],
@@ -518,6 +552,70 @@ def sliding_window_count(
         ceil((height - tile_height) / tile_stride_height + 1) *
         ceil((width - tile_width) / tile_stride_width + 1)
     )
+
+def sliding_windows(
+    height: Optional[int],
+    width: Optional[int],
+    tile_size: Union[int, Tuple[int, int]],
+    tile_stride: Union[int, Tuple[int, int]],
+) -> Union[
+    List[Tuple[int, int, int, int]],
+    List[Tuple[int, int]]
+]:
+    """
+    Gets windows over a height/width using a square tile, or a single dimension.
+
+    :param height: The height of the area.
+    :param width: The width of the area.
+    :param tile_size: The size of the tile.
+    :param tile_stride: The stride of the tile.
+    """
+    if width is None:
+        assert height is not None, "Height must be provided if width is not."
+        if isinstance(tile_size, tuple):
+            tile_size = tile_size[0]
+        if isinstance(tile_stride, tuple):
+            tile_stride = tile_stride[0]
+        return sliding_1d_windows(height, tile_size, tile_stride)
+    elif height is None:
+        assert width is not None, "Width must be provided if height is not."
+        if isinstance(tile_size, tuple):
+            tile_size = tile_size[-1]
+        if isinstance(tile_stride, tuple):
+            tile_stride = tile_stride[-1]
+        return sliding_1d_windows(width, tile_size, tile_stride)
+    return sliding_2d_windows(height, width, tile_size, tile_stride)
+
+def sliding_window_count(
+    height: Optional[int],
+    width: Optional[int],
+    tile_size: Union[int, Tuple[int, int]],
+    tile_stride: Union[int, Tuple[int, int]],
+) -> int:
+    """
+    Calculate the number of tiles needed to cover a rectangular area, or a single dimension.
+
+    :param height: The height of the area.
+    :param width: The width of the area.
+    :param tile_size: The size of the tile.
+    :param tile_stride: The stride of the tile.
+    :return: The number of tiles needed to cover the area.
+    """
+    if width is None:
+        assert height is not None, "Height must be provided if width is not."
+        if isinstance(tile_size, tuple):
+            tile_size = tile_size[0]
+        if isinstance(tile_stride, tuple):
+            tile_stride = tile_stride[0]
+        return sliding_1d_window_count(height, tile_size, tile_stride)
+    elif height is None:
+        assert width is not None, "Width must be provided if height is not."
+        if isinstance(tile_size, tuple):
+            tile_size = tile_size[-1]
+        if isinstance(tile_stride, tuple):
+            tile_stride = tile_stride[-1]
+        return sliding_1d_window_count(width, tile_size, tile_stride)
+    return sliding_2d_window_count(height, width, tile_size, tile_stride)
 
 def no_op(*args: Any, **kwargs: Any) -> None:
     """

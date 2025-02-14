@@ -51,9 +51,15 @@ uv_deps = [
     "uvloop>=0.18",
 ]
 
+jp_deps = [
+    "kanjize",
+    "sudachipy",
+    "sudachidict_full",
+]
+
 setup(
     name="taproot",
-    version="0.3.1",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
+    version="0.3.2",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
     description="Taproot is a seamlessly scalable AI/ML inference engine designed for deployment across hardware clusters with disparate capabilities.",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",

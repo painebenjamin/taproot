@@ -25,6 +25,7 @@ from .pretrained import (
     StableDiffusion3Scheduler,
     StableDiffusion3Transformer,
     StableDiffusion35MediumTransformer,
+    StableDiffusion35MediumTransformerInt8,
     StableDiffusion35LargeTransformer,
     StableDiffusion35LargeTransformerInt8,
     StableDiffusion35LargeTransformerNF4,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = [
     "StableDiffusion3",
     "StableDiffusion35Medium",
+    "StableDiffusion35MediumInt8",
     "StableDiffusion35Large",
     "StableDiffusion35LargeInt8",
     "StableDiffusion35LargeNF4",
@@ -226,6 +228,7 @@ class StableDiffusion3(DiffusersTextToImageTask):
         negative_pooled_prompt_embeds: Optional[torch.Tensor] = None,
         clip_skip: Optional[int] = None,
         seed: SeedType = None,
+        scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL] = None,
         max_sequence_length: int = 256,
         output_format: IMAGE_OUTPUT_FORMAT_LITERAL = "png",
         output_upload: bool = False,
@@ -251,6 +254,7 @@ class StableDiffusion3(DiffusersTextToImageTask):
                 negative_prompt=negative_prompt,
                 negative_prompt_2=negative_prompt_2,
                 negative_prompt_3=negative_prompt_3,
+                scheduler=scheduler,
                 guidance_scale=guidance_scale,
                 num_inference_steps=num_inference_steps,
                 num_images_per_prompt=num_images_per_prompt,
@@ -301,6 +305,21 @@ class StableDiffusion35Medium(StableDiffusion3):
         **StableDiffusion3.pretrained_models,
         **{
             "transformer": StableDiffusion35MediumTransformer,
+        }
+    }
+
+class StableDiffusion35MediumInt8(StableDiffusion35Medium):
+    """
+    Stable Diffusion 3.5 by Stability AI with 8-bit quantization
+    """
+    model = "stable-diffusion-v3-5-medium-int8"
+    display_name = "Stable Diffusion V3.5 (Medium) Image Generation (Int8)"
+    static_gpu_memory_gb = 14.85 # Measured on 3090
+    pretrained_models = {
+        **StableDiffusion3.pretrained_models,
+        **{
+            "transformer": StableDiffusion35MediumTransformerInt8,
+            "text_encoder_3": T5XXLTextEncoderInt8,
         }
     }
 

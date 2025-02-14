@@ -6,12 +6,7 @@ from typing import Any, Union, Dict, Optional, List, Tuple, Literal, TYPE_CHECKI
 from typing_extensions import Self
 
 if TYPE_CHECKING:
-    from torch import (
-        Tensor,
-        Generator,
-        dtype as DType,
-        device as Device
-    )
+    import torch
 
 __all__ = [
     "mask_from_seq_lengths",
@@ -21,9 +16,9 @@ __all__ = [
 ]
 
 def mask_from_seq_lengths(
-    t: Tensor,
+    t: torch.Tensor,
     length: Optional[int]=None
-) -> Tensor:
+) -> torch.Tensor:
     """
     Convert a seq_lengths tensor to a mask tensor
 
@@ -39,10 +34,10 @@ def mask_from_seq_lengths(
     return mask[None, :] < t[:, None]
 
 def mask_from_start_end_indices(
-    seq_length: Tensor,
-    start: Tensor,
-    end: Tensor,
-) -> Tensor:
+    seq_length: torch.Tensor,
+    start: torch.Tensor,
+    end: torch.Tensor,
+) -> torch.Tensor:
     """
     Convert start and end indices to a mask
 
@@ -57,10 +52,10 @@ def mask_from_start_end_indices(
     return start_mask & end_mask
 
 def mask_from_frac_lengths(
-    seq_length: Tensor,
-    frac_lengths: Tensor,
-    generator: Optional[Generator]=None
-) -> Tensor:
+    seq_length: torch.Tensor,
+    frac_lengths: torch.Tensor,
+    generator: Optional[torch.Generator]=None
+) -> torch.Tensor:
     """
     Convert fractional lengths to a mask
 
@@ -89,13 +84,15 @@ class DiffusionMask:
     Holds all the variables needed to compute a mask.
     """
     width: int
-    height: int
+    height: Optional[int]
 
-    def calculate(self) -> Tensor:
+    def calculate(self) -> torch.Tensor:
         """
         These weights are always 1.
         """
         import torch
+        if self.height is None:
+            return torch.ones(self.width)
         return torch.ones(self.height, self.width)
 
 @dataclass(frozen=True)
@@ -106,79 +103,107 @@ class DiffusionUnmask(DiffusionMask):
     There is probably a much more efficient way to calculate this. Help is welcomed!
     """
     left: bool
-    top: bool
     right: bool
-    bottom: bool
+    top: Optional[bool]
+    bottom: Optional[bool]
 
-    def unmask_left(self, x: int, y: int, midpoint_x: int, midpoint_y: int) -> bool:
+    def unmask_left(
+        self,
+        x: int,
+        m_x: int,
+        y: Optional[int]=None,
+        m_y: Optional[int]=None
+    ) -> bool:
         """
         Determines if the left should be unmasked.
         """
         if not self.left:
             return False
-        if x > midpoint_x:
+        if x > m_x:
             return False
-        if y > midpoint_y:
+        if y is None or m_y is None or self.height is None:
+            return True
+        if y > m_y:
             return x <= self.height - y
         return x <= y
 
-    def unmask_top(self, x: int, y: int, midpoint_x: int, midpoint_y: int) -> bool:
+    def unmask_top(self, x: int, y: int, m_x: int, m_y: int) -> bool:
         """
         Determines if the top should be unmasked.
         """
         if not self.top:
             return False
-        if y > midpoint_y:
+        if y > m_y:
             return False
-        if x > midpoint_x:
+        if x > m_x:
             return y <= self.width - x
         return y <= x
 
-    def unmask_right(self, x: int, y: int, midpoint_x: int, midpoint_y: int) -> bool:
+    def unmask_right(
+        self,
+        x: int,
+        m_x: int,
+        y: Optional[int]=None,
+        m_y: Optional[int]=None
+    ) -> bool:
         """
         Determines if the right should be unmasked.
         """
         if not self.right:
             return False
-        if x < midpoint_x:
+        if x < m_x:
             return False
-        if y > midpoint_y:
+        if y is None or m_y is None or self.height is None:
+            return True
+        if y > m_y:
             return x >= y
         return x >= self.height - y
 
-    def unmask_bottom(self, x: int, y: int, midpoint_x: int, midpoint_y: int) -> bool:
+    def unmask_bottom(self, x: int, y: int, m_x: int, m_y: int) -> bool:
         """
         Determines if the bottom should be unmasked.
         """
         if not self.bottom:
             return False
-        if y < midpoint_y:
+        if y < m_y:
             return False
-        if x > midpoint_x:
+        if x > m_x:
             return y >= x
         return y >= self.width - x
 
-    def calculate(self) -> Tensor:
+    def calculate(self) -> torch.Tensor:
         """
         Calculates the unmask.
         """
         import torch
 
-        unfeather_mask = torch.zeros(self.height, self.width)
-        midpoint_x = self.width // 2
-        midpoint_y = self.height // 2
+        if self.height is None:
+            unfeather_mask = torch.zeros(self.width)
+            m_x = self.width // 2
 
-        for y in range(self.height):
             for x in range(self.width):
                 if (
-                    self.unmask_left(x, y, midpoint_x, midpoint_y) or
-                    self.unmask_top(x, y, midpoint_x, midpoint_y) or
-                    self.unmask_right(x, y, midpoint_x, midpoint_y) or
-                    self.unmask_bottom(x, y, midpoint_x, midpoint_y)
+                    self.unmask_left(x=x, m_x=m_x) or
+                    self.unmask_right(x=x, m_x=m_x)
                 ):
-                    x_deviation = abs(midpoint_x - x) / self.width
-                    y_deviation = abs(midpoint_y - y) / self.height
-                    unfeather_mask[y, x] = min(1.0, 1.0 * max(x_deviation, y_deviation) / 0.29)
+                    x_deviation = abs(m_x - x) / self.width
+                    unfeather_mask[x] = min(1.0, 1.0 * x_deviation / 0.29)
+        else:
+            unfeather_mask = torch.zeros(self.height, self.width)
+            m_x = self.width // 2
+            m_y = self.height // 2
+
+            for y in range(self.height):
+                for x in range(self.width):
+                    if (
+                        self.unmask_left(x=x, y=y, m_x=m_x, m_y=m_y) or
+                        self.unmask_top(x=x, y=y, m_x=m_x, m_y=m_y) or
+                        self.unmask_right(x=x, y=y, m_x=m_x, m_y=m_y) or
+                        self.unmask_bottom(x=x, y=y, m_x=m_x, m_y=m_y)
+                    ):
+                        x_deviation = abs(m_x - x) / self.width
+                        y_deviation = abs(m_y - y) / self.height
+                        unfeather_mask[y, x] = min(1.0, 1.0 * max(x_deviation, y_deviation) / 0.29)
 
         return unfeather_mask
 
@@ -189,25 +214,34 @@ class BilinearDiffusionMask(DiffusionMask):
     """
     ratio: float
 
-    def calculate(self) -> Tensor:
+    def calculate(self) -> torch.Tensor:
         """
         Calculates weights in linear gradients.
         """
         import torch
         tensor = super(BilinearDiffusionMask, self).calculate()
         latent_length = int(self.ratio * self.width)
+
         for i in range(latent_length):
             feathered = torch.tensor(i / latent_length)
-            tensor[:, i] = torch.minimum(tensor[:, i], feathered)
-            tensor[i, :] = torch.minimum(tensor[i, :], feathered)
-            tensor[:, self.width - i - 1] = torch.minimum(
-                tensor[:, self.width - i - 1],
-                feathered
-            )
-            tensor[self.height - i - 1, :] = torch.minimum(
-                tensor[self.height - i - 1, :],
-                feathered
-            )
+
+            if self.height is None:
+                tensor[i] = torch.minimum(tensor[i], feathered)
+                tensor[self.width - i - 1] = torch.minimum(
+                    tensor[self.width - i - 1],
+                    feathered
+                )
+            else:
+                tensor[:, i] = torch.minimum(tensor[:, i], feathered)
+                tensor[i, :] = torch.minimum(tensor[i, :], feathered)
+                tensor[:, self.width - i - 1] = torch.minimum(
+                    tensor[:, self.width - i - 1],
+                    feathered
+                )
+                tensor[self.height - i - 1, :] = torch.minimum(
+                    tensor[self.height - i - 1, :],
+                    feathered
+                )
         return tensor
 
 @dataclass(frozen=True)
@@ -218,7 +252,7 @@ class GaussianDiffusionMask(DiffusionMask):
     deviation: float
     growth: float
 
-    def calculate(self) -> Tensor:
+    def calculate(self) -> torch.Tensor:
         """
         Calculates weights with a gaussian distribution
         """
@@ -229,15 +263,21 @@ class GaussianDiffusionMask(DiffusionMask):
             np.exp(-(x - midpoint) * (x - midpoint) / (self.width ** (2 + self.growth)) / (2 * self.deviation)) / np.sqrt(2 * np.pi * self.deviation)
             for x in range(self.width)
         ]
-        midpoint = (self.height - 1) / 2
-        y_probabilities = [
-            np.exp(-(y - midpoint) * (y - midpoint) / (self.height ** (2 + self.growth)) / (2 * self.deviation)) / np.sqrt(2 * np.pi * self.deviation)
-            for y in range(self.height)
-        ]
 
-        weights = np.outer(y_probabilities, x_probabilities)
-        weights = torch.tile(torch.tensor(weights), (1, 1)) # type: ignore[assignment]
-        return weights # type: ignore[return-value]
+        if self.height is None:
+            weights = torch.tensor(x_probabilities)
+        else:
+            midpoint = (self.height - 1) / 2
+            y_probabilities = [
+                np.exp(-(y - midpoint) * (y - midpoint) / (self.height ** (2 + self.growth)) / (2 * self.deviation)) / np.sqrt(2 * np.pi * self.deviation)
+                for y in range(self.height)
+            ]
+
+            weights_np = np.outer(y_probabilities, x_probabilities)
+            weights = torch.tile(torch.tensor(weights_np), (1, 1))
+
+        weights = weights / weights.max()
+        return weights
 
 @dataclass
 class MaskWeightBuilder:
@@ -246,13 +286,13 @@ class MaskWeightBuilder:
 
     Stores masks on the device for speed. Be sure to free memory when no longer needed.
     """
-    device: Union[str, Device]
-    dtype: DType
+    device: Union[str, torch.device]
+    dtype: torch.dtype
 
-    constant_weights: Dict[DiffusionMask, Tensor] = field(default_factory=dict)
-    unmasked_weights: Dict[DiffusionUnmask, Tensor] = field(default_factory=dict)
-    bilinear_weights: Dict[BilinearDiffusionMask, Tensor] = field(default_factory=dict)
-    gaussian_weights: Dict[GaussianDiffusionMask, Tensor] = field(default_factory=dict)
+    constant_weights: Dict[DiffusionMask, torch.Tensor] = field(default_factory=dict)
+    unmasked_weights: Dict[DiffusionUnmask, torch.Tensor] = field(default_factory=dict)
+    bilinear_weights: Dict[BilinearDiffusionMask, torch.Tensor] = field(default_factory=dict)
+    gaussian_weights: Dict[GaussianDiffusionMask, torch.Tensor] = field(default_factory=dict)
 
     def clear(self) -> None:
         """
@@ -284,7 +324,7 @@ class MaskWeightBuilder:
         frames: List[int],
         start: Optional[int]=None,
         end: Optional[int]=None
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates a 1D frame mask
         """
@@ -302,11 +342,11 @@ class MaskWeightBuilder:
     def audio(
         self,
         frames: List[int],
-        frequencies: Tensor,
-        amplitudes: Tensor,
+        frequencies: torch.Tensor,
+        amplitudes: torch.Tensor,
         frequency: Optional[Union[int, Tuple[int, int]]]=None,
         channel: Optional[Union[int, Tuple[int, ...]]]=None
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates a 1D audio mask
         """
@@ -342,9 +382,9 @@ class MaskWeightBuilder:
     def constant(
         self,
         width: int,
-        height: int,
+        height: Optional[int]=None,
         **kwargs: Any
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates the constant mask. No feathering.
         """
@@ -362,14 +402,14 @@ class MaskWeightBuilder:
     def bilinear(
         self,
         width: int,
-        height: int,
-        unfeather_left: bool = False,
-        unfeather_top: bool = False,
-        unfeather_right: bool = False,
-        unfeather_bottom: bool = False,
-        ratio: float = 0.25,
+        height: Optional[int]=None,
+        unfeather_left: bool=False,
+        unfeather_right: bool=False,
+        unfeather_top: bool=False,
+        unfeather_bottom: bool=False,
+        ratio: float=0.25,
         **kwargs: Any
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates the bilinear mask.
         """
@@ -405,15 +445,15 @@ class MaskWeightBuilder:
     def gaussian(
         self,
         width: int,
-        height: int,
-        unfeather_left: bool = False,
-        unfeather_top: bool = False,
-        unfeather_right: bool = False,
-        unfeather_bottom: bool = False,
-        deviation: float = 0.01,
-        growth: float = 0.15,
+        height: Optional[int]=None,
+        unfeather_left: bool=False,
+        unfeather_top: bool=False,
+        unfeather_right: bool=False,
+        unfeather_bottom: bool=False,
+        deviation: float=0.01,
+        growth: float=0.15,
         **kwargs: Any
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates the gaussian mask, optionally unfeathered.
         """
@@ -449,11 +489,11 @@ class MaskWeightBuilder:
 
     def temporal(
         self,
-        tensor: Tensor,
-        frames: Optional[int] = None,
-        unfeather_start: bool = False,
-        unfeather_end: bool = False
-    ) -> Tensor:
+        tensor: torch.Tensor,
+        frames: Optional[int]=None,
+        unfeather_start: bool=False,
+        unfeather_end: bool=False
+    ) -> torch.Tensor:
         """
         Potentially expands a tensor temporally
         """
@@ -483,16 +523,16 @@ class MaskWeightBuilder:
         batch: int,
         dim: int,
         width: int,
-        height: int,
-        frames: Optional[int] = None,
-        unfeather_left: bool = False,
-        unfeather_top: bool = False,
-        unfeather_right: bool = False,
-        unfeather_bottom: bool = False,
-        unfeather_start: bool = False,
-        unfeather_end: bool = False,
+        height: Optional[int]=None,
+        frames: Optional[int]=None,
+        unfeather_left: bool=False,
+        unfeather_top: bool=False,
+        unfeather_right: bool=False,
+        unfeather_bottom: bool=False,
+        unfeather_start: bool=False,
+        unfeather_end: bool=False,
         **kwargs: Any
-    ) -> Tensor:
+    ) -> torch.Tensor:
         """
         Calculates a mask depending on the method requested.
         """
@@ -514,6 +554,9 @@ class MaskWeightBuilder:
             unfeather_bottom=unfeather_bottom,
             **kwargs
         )
+
+        if height is None:
+            return mask.unsqueeze(0).unsqueeze(-1).repeat(batch, 1, dim)
 
         return self.temporal(
             mask.unsqueeze(0).unsqueeze(0).repeat(batch, dim, 1, 1),

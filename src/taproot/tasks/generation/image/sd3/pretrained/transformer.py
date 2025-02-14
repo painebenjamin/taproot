@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 __all__ = [
     "StableDiffusion3Transformer",
     "StableDiffusion35MediumTransformer",
+    "StableDiffusion35MediumTransformerInt8",
     "StableDiffusion35LargeTransformer",
     "StableDiffusion35LargeTransformerFP8",
     "StableDiffusion35LargeTransformerInt8",
@@ -74,6 +75,14 @@ class StableDiffusion35MediumTransformer(StableDiffusion3Transformer):
             "qk_norm": "rms_norm",
             "sample_size": 128
         }
+
+class StableDiffusion35MediumTransformerInt8(StableDiffusion35MediumTransformer):
+    """
+    StableDiffusion v3.5 Transformer Model (Medium) with 8-bit quantization
+    """
+    model_url: Optional[Union[str, List[str]]] = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v3-5-medium-transformer.int8.bf16.safetensors"
+    quantization = "bitsandbytes_8bit"
+    pre_quantized = True
 
 class StableDiffusion35LargeTransformer(StableDiffusion3Transformer):
     """

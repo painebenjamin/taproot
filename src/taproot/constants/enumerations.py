@@ -24,13 +24,13 @@ __all__ = [
 
 TEST_RESTRICTED_MODULES = {
     "accelerate", "cv2", "deepfilternet", "diffusers",
-    "einops", "hydra", "librosa","mmaction", "mmcls",
+    "einops", "hydra", "librosa", "mamba_ssm", "mmaction", "mmcls",
     "mmcv", "mmdet", "mmengine", "mmocr", "mmpose",
     "mmseg", "mmtracking", "numpy", "onnx", "onnxruntime",
     "pandas", "peft", "pil", "pytorch_lightning", "safetensors",
     "scipy", "skimage", "sklearn", "timm", "torch", "torchaudio",
     "torchdiffeq", "torchvision", "transformers", "tts",
-    "xformers", "phonemizer"
+    "xformers", "phonemizer", "flash_attn"
 }
 KNOWN_GPU_MODEL_FILE_EXTENSIONS = {
     ".bin", ".pt", ".pth", ".onnx", ".h5", ".gguf",
@@ -53,7 +53,11 @@ DIFFUSERS_SCHEDULER_LITERAL = Literal[
     "dpmsolver_sde_multistep_karras", "dpmsolver_singlestep",
     "dpmsolver_singlestep_karras", "edm_dpmsolver_multistep", "edm_euler",
     "euler_ancestral_discrete", "euler_discrete", "euler_discrete_karras",
-    "flow_match_euler_discrete", "flow_match_heun_discrete", "heun_discrete",
+    "flow_match_euler_discrete", "flow_match_euler_discrete_karras",
+    "flow_match_euler_discrete_beta", "flow_match_euler_discrete_exponential", 
+    "flow_match_euler_discrete_dynamic", "flow_match_euler_discrete_karras_dynamic",
+    "flow_match_euler_discrete_beta_dynamic", "flow_match_euler_discrete_exponential_dynamic",
+    "flow_match_heun_discrete", "heun_discrete",
     "ipndm", "k_dpm_2_ancestral_discrete", "k_dpm_2_ancestral_discrete_karras",
     "k_dpm_2_discrete", "k_dpm_2_discrete_karras", "lcm", "lms_discrete",
     "lms_discrete_karras", "pndm", "tcd", "unipc"

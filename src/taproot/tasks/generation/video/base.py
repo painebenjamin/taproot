@@ -304,6 +304,7 @@ class DiffusersTextToVideoTask(DiffusersPipelineTask):
                 accepts_negative_prompt=accepts_negative_prompt,
                 spatial_prompts=spatial_prompts,
             )
+            assert encoded_prompts is not None, "Could not encode prompts"
             encoded_prompts.do_classifier_free_guidance = is_cfg
             encoded_prompts.do_perturbed_attention_guidance = False
             self.enable_multidiffusion(spatial_prompts=encoded_prompts)

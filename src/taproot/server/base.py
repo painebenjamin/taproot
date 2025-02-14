@@ -73,7 +73,7 @@ class Server(Encryption):
         """
         Default protocol for the server.
         """
-        return DEFAULT_PROTOCOL # type: ignore[return-value]
+        return DEFAULT_PROTOCOL
 
     @property
     def default_host(self) -> str:

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
-from typing import Tuple, Union, Optional, Sequence, Any, List
+from typing import Tuple, Union, Optional, Sequence, Any, List, TYPE_CHECKING
 
 from uuid import uuid4
 from math import modf
 from random import choices
+
+if TYPE_CHECKING:
+    try:
+        from sudachipy import Dictionary # type: ignore[import-not-found,import-untyped,unused-ignore]
+    except ImportError:
+        pass
 
 __all__ = [
     "get_uuid",
@@ -20,6 +27,7 @@ __all__ = [
     "simplify_quotations",
     "multiline_trim",
     "normalize_text",
+    "normalize_jp_text",
     "ends_with_multi_byte_character",
     "chunk_text",
 ]
@@ -361,6 +369,27 @@ def normalize_text(
     text = re.sub(r"[^a-zA-Z0-9,.:;\ \-'\"\/()!?]", "", text)
 
     return text.strip()
+
+def normalize_jp_text(text: str, dictionary: Optional[Dictionary]=None) -> str:
+    """
+    Normalize Japanese text.
+    """
+    try:
+        from kanjize import number2kanji
+        from sudachipy import Dictionary, SplitMode
+    except ImportError as ex:
+        raise ImportError("Japanese language dependencies not installed. Install the 'jp' extras set.") from ex
+
+    if dictionary is None:
+        dictionary = Dictionary(dict="full").create()
+
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"\d+", lambda m: number2kanji(int(m[0])), text)
+    text = " ".join([    
+        x.reading_form()
+        for x in dictionary.tokenize(text, SplitMode.A)
+    ])
+    return text
 
 def ends_with_multi_byte_character(text: str) -> bool:
     """

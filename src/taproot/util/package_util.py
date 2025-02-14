@@ -236,6 +236,8 @@ def get_pip_package_name(package_name: str) -> str:
         return "opencv-python"
     elif name_lower == "llama_cpp":
         return "llama-cpp-python"
+    elif name_lower == "mamba_ssm":
+        return "mamba-ssm"
     elif name_lower == "df":
         return "deepfilternet"
     elif name_lower == "tts":

@@ -269,7 +269,7 @@ class Dispatcher(ConfigServer):
         configured = self.config.executor_config.protocol
         if configured is not None:
             return str(configured) # type: ignore[return-value]
-        return DEFAULT_PROTOCOL # type: ignore[return-value]
+        return DEFAULT_PROTOCOL
 
     @executor_protocol.setter
     def executor_protocol(self, value: PROTOCOL_LITERAL) -> None:

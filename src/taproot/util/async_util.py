@@ -100,38 +100,42 @@ class AsyncRunner:
         self.sequential = sequential
         self.delay = delay
 
-    async def main(self) -> None:
+    async def main(self) -> List[Any]:
         """
         Runs all callables, either in parallel or sequentially.
         """
         if self.sequential:
+            results: List[Any] = []
             for method in self.callables:
-                await method()
+                results.append(await method())
                 if self.delay is not None:
                     await asyncio.sleep(self.delay)
+            return results
         else:
-            await asyncio.gather(*[
+            return await asyncio.gather(*[
                 method()
                 for method in self.callables
             ])
 
-    def run(self, debug: bool=False, ignore_cancel: bool=True) -> None:
+    def run(self, debug: bool=False, ignore_cancel: bool=True) -> List[Any]:
         """
         Runs the main method in the event loop.
         """
         try:
             if uvloop_is_available():
                 import uvloop
-                uvloop.run(self.main(), debug=debug)
+                return uvloop.run(self.main(), debug=debug)
             else:
                 if platform.system() == "Windows":
                     # Required for aiodns
                     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) # type: ignore[attr-defined]
 
-                asyncio.run(self.main())
+                return asyncio.run(self.main())
         except asyncio.CancelledError:
             if not ignore_cancel:
                 raise
+
+        return [] # fallback
 
 class TaskRunner:
     """

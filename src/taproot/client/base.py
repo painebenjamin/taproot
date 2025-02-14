@@ -54,7 +54,7 @@ class Client(Encryption):
         """
         Default protocol class for the server.
         """
-        return DEFAULT_PROTOCOL # type: ignore
+        return DEFAULT_PROTOCOL
 
     @property
     def default_host(self) -> str:

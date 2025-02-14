@@ -2,6 +2,8 @@ from ..pretrained import (
     StableDiffusion35LargeTransformer,
     StableDiffusion35LargeTransformerInt8,
     StableDiffusion35LargeTransformerNF4,
+    StableDiffusion35MediumTransformer,
+    StableDiffusion35MediumTransformerInt8,
 )
 
 __all__ = [
@@ -11,6 +13,8 @@ __all__ = [
     "StableDiffusion35LargeAbsynthV20Transformer",
     "StableDiffusion35LargeAbsynthV20TransformerInt8",
     "StableDiffusion35LargeAbsynthV20TransformerNF4",
+    "StableDiffusion35MediumAbsynthV20Transformer",
+    "StableDiffusion35MediumAbsynthV20TransformerInt8",
 ]
 
 class StableDiffusion35LargeAbsynthV19Transformer(StableDiffusion35LargeTransformer):
@@ -48,3 +52,15 @@ class StableDiffusion35LargeAbsynthV20TransformerNF4(StableDiffusion35LargeTrans
     Absynth V2.0 Transformer Model (NF4 Quantization)
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v3-5-large-absynth-v2-0-transformer.nf4.fp16.safetensors"
+
+class StableDiffusion35MediumAbsynthV20Transformer(StableDiffusion35MediumTransformer):
+    """
+    Absynth V2.0 Transformer Model (Medium)
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v3-5-medium-absynth-v2-0-transformer.fp16.safetensors"
+
+class StableDiffusion35MediumAbsynthV20TransformerInt8(StableDiffusion35MediumTransformerInt8):
+    """
+    Absynth V2.0 Transformer Model (Int8 Quantization, Medium)
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/image-generation-stable-diffusion-v3-5-medium-absynth-v2-0-transformer.int8.fp16.safetensors"

@@ -146,7 +146,11 @@ def audio_to_bct_tensor(
     if isinstance(input_data, list):
         # Recursive case
         recursed_data: List[Tuple[torch.Tensor, int]] = [
-            audio_to_bct_tensor(input_datum, sample_rate) # type: ignore[misc]
+            audio_to_bct_tensor(
+                input_datum,
+                sample_rate=sample_rate,
+                target_sample_rate=target_sample_rate
+            ) # type: ignore[misc]
             for input_datum in input_data
         ]
         sample_rates = [sr for _, sr in recursed_data if sr is not None]

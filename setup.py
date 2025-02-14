@@ -74,6 +74,7 @@ setup(
     extras_require={
         "av": av_deps,
         "uv": uv_deps,
+        "jp": jp_deps,
         "ws": websocket_deps,
         "cli": cli_deps,
         "http": http_deps,

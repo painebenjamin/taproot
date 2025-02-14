@@ -236,7 +236,7 @@ async def main() -> None:
         result = await tap("speech-synthesis", model="kokoro", text="Hello, world!")
         result.save("./output.wav")
 
-uvloop.run(main)
+uvloop.run(main())
 ```
 
 ## Running Servers

@@ -5,6 +5,7 @@ from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
 from taproot.constants import *
 from taproot.util import (
     get_seed,
+    get_punctuation_pause_ratio,
     concatenate_audio,
     seed_everything,
     normalize_text,
@@ -103,19 +104,8 @@ class KokoroSpeechSynthesis(Task):
         Get the sample rate of the model.
         """
         if enhance:
-            return self.tasks.enhance.df_state.sr() # type: ignore[no-any-return]
+            return self.tasks.enhance.sample_rate # type: ignore[no-any-return]
         return self.sample_rate
-
-    def get_punctuation_pause(self, text: str) -> float:
-        """
-        Check if the text ends with punctuation and return the pause duration ratio.
-        """
-        char = text.strip()[-1]
-        if char in [".", "!", "?", "。", "，", "！", "？"]: 
-            return 1.0
-        if char in [",", ";", "；"]:
-            return 0.5
-        return 0.0
 
     def enhance(
         self,
@@ -197,7 +187,7 @@ class KokoroSpeechSynthesis(Task):
 
             # If this isn't the last audio in the text, determine if we need to add silence
             if text_chunk_index < text_chunks_count[text_index] - 1:
-                pause = self.get_punctuation_pause(text_chunk)
+                pause = get_punctuation_pause_ratio(text_chunk)
                 if pause > 0:
                     pause_duration = punctuation_pause_duration * pause
                     num_pause_samples = int(pause_duration * self.get_sample_rate(enhance=enhance) * (1 + (enhance * 7)))

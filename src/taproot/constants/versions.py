@@ -2,6 +2,7 @@ import os
 
 __all__ = [
     "ACCELERATE_VERSION_SPEC",
+    "CAUSAL_CONV1D_VERSION_SPEC",
     "COMPEL_VERSION_SPEC",
     "DIFFUSERS_VERSION_SPEC",
     "EINOPS_VERSION_SPEC",
@@ -33,6 +34,7 @@ __all__ = [
 # to avoid conflicts with other packages. If you need/want to
 # change one of these, make an issue on the repository.
 ACCELERATE_VERSION_SPEC = os.getenv("ACCELERATE_VERSION_SPEC", "~=1.0")
+CAUSAL_CONV1D_VERSION_SPEC = os.getenv("CAUSAL_CONV1D_VERSION_SPEC", "~=1.5")
 COMPEL_VERSION_SPEC = os.getenv("COMPEL_VERSION_SPEC", "~=2.0")
 DIFFUSERS_VERSION_SPEC = os.getenv("DIFFUSERS_VERSION_SPEC", ">=0.29")
 EINOPS_VERSION_SPEC = os.getenv("EINOPS_VERSION_SPEC", ">=0.8")

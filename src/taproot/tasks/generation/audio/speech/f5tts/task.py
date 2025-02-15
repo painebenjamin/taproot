@@ -5,6 +5,8 @@ from typing import Optional, Union, List, Dict, Any, Tuple, TYPE_CHECKING
 from taproot.constants import *
 from taproot.util import (
     logger,
+    get_punctuation_pause_ratio,
+    rms_normalize_audio,
     audio_to_bct_tensor,
     concatenate_audio,
     seed_everything,
@@ -137,19 +139,8 @@ class F5TTSSpeechSynthesis(Task):
         Get the sample rate of the model.
         """
         if enhance:
-            return self.tasks.enhance.df_state.sr() # type: ignore[no-any-return]
+            return self.tasks.enhance.sample_rate # type: ignore[no-any-return]
         return self.sample_rate
-
-    def get_punctuation_pause(self, text: str) -> float:
-        """
-        Check if the text ends with punctuation and return the pause duration ratio.
-        """
-        char = text.strip()[-1]
-        if char in [".", "!", "?", "。", "，", "！", "？"]: 
-            return 1.0
-        if char in [",", ";", "；"]:
-            return 0.5
-        return 0.0
 
     def format_text(
         self,
@@ -223,10 +214,7 @@ class F5TTSSpeechSynthesis(Task):
         import torch
         import torchaudio # type: ignore[import-untyped]
 
-        rms = torch.sqrt(torch.mean(torch.square(reference_audio)))
-        if rms < target_rms:
-            reference_audio = reference_audio * (target_rms / rms)
-
+        reference_audio = rms_normalize_audio(reference_audio, target_rms)
         if reference_sample_rate != self.sample_rate:
             reference_audio = torchaudio.transforms.Resample(
                 orig_freq=reference_sample_rate,
@@ -274,17 +262,14 @@ class F5TTSSpeechSynthesis(Task):
                 audio = audio.to(dtype=vocoder_dtype)[:, reference_audio_length:, :]
                 audio = audio.permute(0, 2, 1)
                 audio = self.vocoder.decode(audio).to(dtype=torch.float32)
-
-                if rms < target_rms:
-                    audio = audio * rms / target_rms
-
                 audio = audio.squeeze().cpu()
+                audio = rms_normalize_audio(audio, target_rms)
 
                 if enhance:
                     audio = self.enhance(audio, seed=seed)
 
                 if (i < num_texts - 1 or j < num_text_chunks - 1):
-                    pause = self.get_punctuation_pause(text_chunk)
+                    pause = get_punctuation_pause_ratio(text_chunk)
                     if pause > 0:
                         pause_duration = punctuation_pause_duration * pause
                         logger.debug(f"Adding pause of {pause_duration} seconds to the end of the audio.")

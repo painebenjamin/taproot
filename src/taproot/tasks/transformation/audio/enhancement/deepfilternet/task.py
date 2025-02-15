@@ -81,13 +81,6 @@ class DeepFilterNet3Enhancement(Task):
     """Internal Task Attributes"""
 
     @property
-    def max_samples(self) -> int:
-        """
-        The maximum number of samples that can be processed in a single call.
-        """
-        return 48000 * 60 * 12 # 12 minutes @ 48 kHz
-
-    @property
     def df_net(self) -> DfNet:
         """
         Add mapped modules as properties for convenience and type hinting.
@@ -100,6 +93,20 @@ class DeepFilterNet3Enhancement(Task):
         Get the state of the DeepFilterNet3 model.
         """
         return DeepFilterNet3Model.get_df_state()
+
+    @property
+    def sample_rate(self) -> int:
+        """
+        The sample rate of the DeepFilterNet3 model.
+        """
+        return self.df_state.sr()
+
+    @property
+    def max_samples(self) -> int:
+        """
+        The maximum number of samples that can be processed in a single call.
+        """
+        return self.sample_rate * 60 * 12 # 12 minutes @ 48 kHz
 
     """Private Methods"""
 
@@ -239,8 +246,10 @@ class DeepFilterNet3Enhancement(Task):
         Suppress noise and enhance speech in audio using the DeepFilterNet3 model.
         """
         import torch
+
         if seed is not None:
             seed_everything(seed)
+
         with torch.inference_mode():
             audios, sr = audio_to_bct_tensor(
                 audio,

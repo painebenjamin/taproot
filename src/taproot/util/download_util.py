@@ -611,4 +611,6 @@ def retrieve_uri(uri: str, chunk_size: int=8192) -> BinaryIO:
         else:
             if uri.startswith("file://"):
                 uri = uri[7:]
+            if uri.startswith("~"):
+                uri = os.path.expanduser(uri)
             return open(uri, "rb")

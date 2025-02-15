@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from typing import Optional, List, Union, Dict, TYPE_CHECKING
+import warnings
+
+from typing import Optional, List, Union, Dict, Tuple, TYPE_CHECKING
 
 from taproot.constants import *
 from taproot.tasks.base import Task
 from taproot.util import (
     get_seed,
+    maybe_use_tqdm,
     trim_silence,
     log_duration,
+    get_punctuation_pause_ratio,
     seed_everything,
+    equalize_audio,
+    pitch_shift_audio,
+    rms_normalize_audio,
     audio_to_bct_tensor,
     concatenate_audio,
     normalize_jp_text,
@@ -62,6 +69,9 @@ class ZonosHybridSpeechSynthesis(Task):
     """License Metadata"""
     license = LICENSE_APACHE
 
+    """Internal Metadata"""
+    sample_rate: int = 44100
+
     @classmethod
     def required_packages(cls) -> Dict[str, Optional[str]]:
         """
@@ -69,6 +79,7 @@ class ZonosHybridSpeechSynthesis(Task):
         """
         return {
             "accelerate": ACCELERATE_VERSION_SPEC,
+            "causal-conv1d": CAUSAL_CONV1D_VERSION_SPEC,
             "einops": EINOPS_VERSION_SPEC,
             "flash_attn": FLASH_ATTN_VERSION_SPEC,
             "mamba_ssm": MAMBA_SSM_VERSION_SPEC,
@@ -100,34 +111,30 @@ class ZonosHybridSpeechSynthesis(Task):
         Get the sample rate of the model.
         """
         if enhance:
-            return self.tasks.enhance.df_state.sr() # type: ignore[no-any-return]
-        return 44100
+            return self.tasks.enhance.sample_rate # type: ignore[no-any-return]
+        return self.sample_rate
 
     def enhance(
         self,
         audio: torch.Tensor,
+        sample_rate: int,
         seed: SeedType=None,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, int]:
         """
         Enhance audio using the DeepFilterNet3 model.
         """
-        return self.tasks.enhance( # type: ignore[no-any-return]
+        if not DeepFilterNet3Enhancement.is_available():
+            warnings.warn("DeepFilterNet3 enhancement is not available.")
+            return audio, sample_rate
+
+        result_audio = self.tasks.enhance(
             audio=audio,
-            sample_rate=44100,
+            sample_rate=sample_rate,
             seed=seed,
             output_format="float"
-        )[0]
+        )
 
-    def get_punctuation_pause(self, text: str) -> float:
-        """
-        Check if the text ends with punctuation and return the pause duration ratio.
-        """
-        char = text.strip()[-1]
-        if char in [".", "!", "?", "。", "，", "！", "？"]: 
-            return 1.0
-        if char in [",", ";", "；"]:
-            return 0.5
-        return 0.0
+        return result_audio, self.tasks.enhance.sample_rate
 
     def synthesize(
         self,
@@ -136,6 +143,7 @@ class ZonosHybridSpeechSynthesis(Task):
         language: str="en-us",
         prefix_audio: Optional[torch.Tensor]=None,
         reference_audio: Optional[torch.Tensor]=None,
+        reference_audio_pitch_shift: Optional[Union[str, float]]=-44.99,
         enhance: bool=False,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
@@ -187,6 +195,7 @@ class ZonosHybridSpeechSynthesis(Task):
             emotion_other,
             emotion_neutral
         ]
+        final_sample_rate = self.get_sample_rate(enhance=enhance)
 
         if reference_audio is not None:
             reference_audio = reference_audio.to(self.device)
@@ -218,7 +227,7 @@ class ZonosHybridSpeechSynthesis(Task):
         if skip_emotion:
             unconditional_keys.add("emotion")
 
-        for i, text in enumerate(texts):
+        for i, text in maybe_use_tqdm(enumerate(texts), desc="Synthesizing Speech", total=num_texts):
             # Re-seed every chunk
             seed_everything(seed)
             conds = make_cond_dict(
@@ -238,31 +247,46 @@ class ZonosHybridSpeechSynthesis(Task):
             )
             conditioning = self.pretrained.model.prepare_conditioning(conds)
 
-            with log_duration("Generating codes"):
-                codes = self.pretrained.model.generate(
-                    prefix_conditioning=conditioning,
-                    audio_prefix_codes=prefix_codes,
-                    cfg_scale=cfg_scale,
-                    sampling_params={"min_p": min_p},
-                )
-
-            with log_duration("Decoding audio"):
-                audio = self.pretrained.autoencoder.decode(codes).cpu()[0]
-
+            codes = self.pretrained.model.generate(
+                prefix_conditioning=conditioning,
+                audio_prefix_codes=prefix_codes,
+                cfg_scale=cfg_scale,
+                sampling_params={"min_p": min_p},
+            )
+            audio = self.pretrained.autoencoder.decode(codes).cpu()[0]
             audio = trim_silence(audio)
+            audio = rms_normalize_audio(audio, target_rms)
 
             if enhance:
-                with log_duration("Enhancing audio"):
-                    audio = self.enhance(audio)
-
-            rms = torch.sqrt(torch.mean(torch.square(audio)))
-            audio = audio * (target_rms / rms)
+                audio, _ = self.enhance(audio, self.sample_rate)
 
             if (i < num_texts - 1):
-                pause = self.get_punctuation_pause(text)
+                if "speaker" in unconditional_keys:
+                    # In order to get a consistent speaker over multiple chunks, there needs to be a speaker embedding.
+                    # If the speaker is not provided, we will generate an embedding from the first chunk.
+                    if speaker is None:
+                        if reference_audio_pitch_shift is not None:
+                            reference_audio, _ = pitch_shift_audio(audio, final_sample_rate, reference_audio_pitch_shift)
+                        else:
+                            reference_audio = audio
+
+                        reference_audio, _ = equalize_audio(reference_audio, final_sample_rate, preset="voice") # type: ignore[arg-type]
+                        with log_duration("Extracting speaker embedding"):
+                            resampled_audio, _ = audio_to_bct_tensor(
+                                reference_audio,
+                                sample_rate=final_sample_rate,
+                                target_sample_rate=16000
+                            )
+                            _, speaker = self.pretrained.speaker_embedding(resampled_audio[0].to(self.device))
+                            assert speaker is not None, "Could not extract speaker embedding."
+                            speaker = speaker.unsqueeze(0)
+
+                    unconditional_keys.remove("speaker")
+
+                pause = get_punctuation_pause_ratio(text)
                 if pause > 0:
                     pause_duration = punctuation_pause_duration * pause
-                    num_pause_samples = int(pause_duration * self.get_sample_rate(enhance=enhance))
+                    num_pause_samples = int(pause_duration * final_sample_rate)
                     pause_samples = torch.zeros((1, num_pause_samples)).to(dtype=audio.dtype, device=audio.device)
                     audio = torch.cat([audio, pause_samples], dim=1)
 
@@ -272,7 +296,7 @@ class ZonosHybridSpeechSynthesis(Task):
         return concatenate_audio(
             audios,
             cross_fade_duration=cross_fade_duration,
-            sample_rate=self.get_sample_rate(enhance=enhance)
+            sample_rate=final_sample_rate
         )
 
     """Overrides"""
@@ -285,7 +309,12 @@ class ZonosHybridSpeechSynthesis(Task):
         enhance: bool=False,
         seed: SeedType=None,
         prefix_audio: Optional[AudioType]=None,
+        equalize_prefix_audio: bool=True,
+        enhance_prefix_audio: bool=False,
         reference_audio: Optional[AudioType]=None,
+        reference_audio_pitch_shift: Optional[Union[str, float]]=-44.99,
+        equalize_reference_audio: bool=True,
+        enhance_reference_audio: bool=False,
         cross_fade_duration: float=0.15,
         punctuation_pause_duration: float=0.10,
         cfg_scale: float=2.0,
@@ -364,31 +393,46 @@ class ZonosHybridSpeechSynthesis(Task):
             raise ValueError("Text is required for synthesis.")
 
         if reference_audio is not None:
-            reference_audio, reference_sample_rate = audio_to_bct_tensor(
-                reference_audio,
-                target_sample_rate=16000
-            )
+            reference_audio, reference_sample_rate = audio_to_bct_tensor(reference_audio)
             reference_audio = trim_silence(reference_audio)
-            rms = torch.sqrt(torch.mean(torch.square(reference_audio))) # type: ignore[arg-type]
-            reference_audio = reference_audio * (target_rms / rms)
+            reference_audio = rms_normalize_audio(reference_audio, target_rms) # type: ignore[arg-type]
+
+            if enhance_reference_audio:
+                reference_audio, reference_sample_rate = self.enhance(reference_audio, reference_sample_rate) # type: ignore[arg-type]
+            if equalize_reference_audio:
+                reference_audio, reference_sample_rate = equalize_audio(reference_audio, reference_sample_rate, preset="voice") # type: ignore[arg-type]
+            if reference_audio_pitch_shift:
+                reference_audio, reference_sample_rate = pitch_shift_audio(reference_audio, reference_sample_rate, reference_audio_pitch_shift) # type: ignore[arg-type]
+
+            if reference_sample_rate != 16000:
+                reference_audio, reference_sample_rate = audio_to_bct_tensor(
+                    reference_audio,
+                    target_sample_rate=16000
+                )
 
             # Make sure the reference audio is a single channel
-            if reference_audio.shape[1] > 1: # type: ignore[union-attr]
-                reference_audio = reference_audio.mean(dim=1, keepdim=True) # type: ignore[union-attr]
+            if reference_audio.shape[1] > 1:
+                reference_audio = reference_audio.mean(dim=1, keepdim=True)
 
         if prefix_audio is not None:
-            prefix_audio, prefix_sample_rate = audio_to_bct_tensor(
-                prefix_audio,
-                target_sample_rate=44100
-            )
-            assert prefix_audio is not None, "Could not convert prefix audio to tensor."
+            prefix_audio, prefix_sample_rate = audio_to_bct_tensor(prefix_audio)
             prefix_audio = trim_silence(prefix_audio)
-            rms = torch.sqrt(torch.mean(torch.square(prefix_audio))) # type: ignore[arg-type]
-            prefix_audio = prefix_audio * (target_rms / rms)
+            prefix_audio = rms_normalize_audio(prefix_audio, target_rms) # type: ignore[arg-type]
+
+            if enhance_prefix_audio:
+                prefix_audio, prefix_sample_rate = self.enhance(prefix_audio, prefix_sample_rate) # type: ignore[arg-type]
+            if equalize_prefix_audio:
+                prefix_audio, prefix_sample_rate = equalize_audio(prefix_audio, prefix_sample_rate, preset="voice") # type: ignore[arg-type]
+
+            if prefix_sample_rate != self.sample_rate:
+                prefix_audio, prefix_sample_rate = audio_to_bct_tensor(
+                    prefix_audio,
+                    target_sample_rate=self.sample_rate
+                )
 
             # Make sure the prefix audio is a single channel
-            if prefix_audio.shape[1] > 1: # type: ignore[union-attr]
-                prefix_audio = prefix_audio.mean(dim=1, keepdim=True) # type: ignore[union-attr]
+            if prefix_audio.shape[1] > 1:
+                prefix_audio = prefix_audio.mean(dim=1, keepdim=True)
 
         texts = [text] if isinstance(text, str) else text
         text_chunks = []
@@ -408,8 +452,9 @@ class ZonosHybridSpeechSynthesis(Task):
                 texts=text_chunks,
                 language=language,
                 seed=get_seed(seed),
-                prefix_audio=prefix_audio, # type: ignore[arg-type]
-                reference_audio=reference_audio, # type: ignore[arg-type]
+                prefix_audio=prefix_audio,
+                reference_audio=reference_audio,
+                reference_audio_pitch_shift=reference_audio_pitch_shift,
                 enhance=enhance,
                 cross_fade_duration=cross_fade_duration,
                 punctuation_pause_duration=punctuation_pause_duration,

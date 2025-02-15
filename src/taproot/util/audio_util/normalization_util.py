@@ -787,8 +787,10 @@ def audio_write(
     assert wav.dtype.is_floating_point, "wav is not floating point"
     if wav.dim() == 1:
         wav = wav[None]
-    elif wav.dim() > 2:
-        raise ValueError("Input wav should be at most 2 dimension.")
+    elif wav.dim() == 3:
+        if wav.shape[0] != 1:
+            raise ValueError("Input wav should be at most 2 dimension - got 3.")
+        wav = wav[0]
     assert wav.isfinite().all()
     wav = normalize_audio(
         wav, normalize, strategy, peak_clip_headroom_db,

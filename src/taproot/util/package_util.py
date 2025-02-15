@@ -10,6 +10,8 @@ from packaging.specifiers import SpecifierSet
 
 from typing import Union, Optional, Dict, List, Tuple, TYPE_CHECKING
 
+from ..constants import *
+
 if TYPE_CHECKING:
     from ..payload import RequiredLibrary, RequiredBinary
 
@@ -34,11 +36,6 @@ __all__ = [
     "required_binary_is_available",
     "version_matches_spec",
 ]
-
-PREBUILT_CUDA_VERSION = os.getenv("PREBUILT_CUDA_VERSION", "cu121")
-NVIDIA_REPO_URL = "https://pypi.ngc.nvidia.com"
-TORCH_REPO_URL = f"https://download.pytorch.org/whl/{PREBUILT_CUDA_VERSION}"
-LLAMA_CPP_REPO_URL = f"https://abetlen.github.io/llama-cpp-python/whl/{PREBUILT_CUDA_VERSION}"
 
 TORCH_PACKAGES: Optional[List[str]] = None
 def get_torch_packages() -> List[str]:
@@ -66,6 +63,12 @@ def is_torch_package(package_name: str) -> bool:
     Check if a package is a PyTorch package.
     """
     return package_name in get_torch_packages()
+
+def is_torch_dependent_package(package_name: str) -> bool:
+    """
+    Check if a package is dependent on PyTorch being present at install time.
+    """
+    return package_name in TORCH_DEPENDENT_MODULES
 
 TORCH_PACKAGE_VERSIONS: Dict[str, Tuple[List[Version], List[Version]]] = {}
 def get_torch_package_versions(package_name: str) -> Tuple[List[Version], List[Version]]:
@@ -609,15 +612,17 @@ def install_packages(
 
         name_specs[package_name] = spec or ""
 
-    if use_mim:
-        # Mim will break if torch is not installed first, so we check for it here
-        torch_installed = package_is_installed("torch")
-        if not torch_installed:
-            # We need to install torch first
-            torch_spec = name_specs.get("torch", None)
-            install_package("torch", torch_spec)
+    install_torch_first = use_mim or any([
+        is_torch_dependent_package(package_name)
+        for package_name in name_specs
+    ]) and not package_is_installed("torch")
 
-        # Make sure openmim is installed as well
+    if install_torch_first:
+        torch_spec = name_specs.get("torch", None)
+        install_package("torch", torch_spec)
+
+    if use_mim:
+        # Make sure openmim is installed
         openmim_installed = package_is_installed("openmim")
         if not openmim_installed:
             openmim_spec = name_specs.pop("openmim", None)

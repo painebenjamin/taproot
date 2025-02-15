@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Optional, List, Union, Dict, TYPE_CHECKING
-from tqdm import tqdm
 
 from taproot.constants import *
 from taproot.tasks.base import Task
@@ -69,20 +68,21 @@ class ZonosHybridSpeechSynthesis(Task):
         Required packages.
         """
         return {
-            "pil": PILLOW_VERSION_SPEC,
             "accelerate": ACCELERATE_VERSION_SPEC,
-            "torch": TORCH_VERSION_SPEC,
-            "numpy": NUMPY_VERSION_SPEC,
-            "scipy": SCIPY_VERSION_SPEC,
             "einops": EINOPS_VERSION_SPEC,
-            "sklearn": SKLEARN_VERSION_SPEC,
-            "mamba_ssm": MAMBA_SSM_VERSION_SPEC,
-            "torchvision": TORCHVISION_VERSION_SPEC,
-            "torchaudio": TORCHAUDIO_VERSION_SPEC,
-            "safetensors": SAFETENSORS_VERSION_SPEC,
-            "transformers": TRANSFORMERS_VERSION_SPEC,
-            "phonemizer": PHONEMIZER_VERSION_SPEC,
             "flash_attn": FLASH_ATTN_VERSION_SPEC,
+            "mamba_ssm": MAMBA_SSM_VERSION_SPEC,
+            "ninja": NINJA_VERSION_SPEC,
+            "numpy": NUMPY_VERSION_SPEC,
+            "phonemizer": PHONEMIZER_VERSION_SPEC,
+            "pil": PILLOW_VERSION_SPEC,
+            "safetensors": SAFETENSORS_VERSION_SPEC,
+            "scipy": SCIPY_VERSION_SPEC,
+            "sklearn": SKLEARN_VERSION_SPEC,
+            "torch": TORCH_VERSION_SPEC,
+            "torchaudio": TORCHAUDIO_VERSION_SPEC,
+            "torchvision": TORCHVISION_VERSION_SPEC,
+            "transformers": TRANSFORMERS_VERSION_SPEC,
         }
 
     @property
@@ -218,11 +218,7 @@ class ZonosHybridSpeechSynthesis(Task):
         if skip_emotion:
             unconditional_keys.add("emotion")
 
-        for i, text in tqdm(
-            enumerate(texts),
-            desc="Synthesizing text",
-            total=len(texts)
-        ):
+        for i, text in enumerate(texts):
             # Re-seed every chunk
             seed_everything(seed)
             conds = make_cond_dict(

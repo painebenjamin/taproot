@@ -2,6 +2,7 @@ from typing_extensions import Literal
 
 __all__ = [
     "TEST_RESTRICTED_MODULES",
+    "TORCH_DEPENDENT_MODULES",
     "KNOWN_GPU_MODEL_FILE_EXTENSIONS",
     "CONTROLNET_TYPE_LITERAL",
     "IP_ADAPTER_TYPE_LITERAL",
@@ -31,6 +32,9 @@ TEST_RESTRICTED_MODULES = {
     "scipy", "skimage", "sklearn", "timm", "torch", "torchaudio",
     "torchdiffeq", "torchvision", "transformers", "tts",
     "xformers", "phonemizer", "flash_attn"
+}
+TORCH_DEPENDENT_MODULES = {
+    "flash_attn", "mamba-ssm",
 }
 KNOWN_GPU_MODEL_FILE_EXTENSIONS = {
     ".bin", ".pt", ".pth", ".onnx", ".h5", ".gguf",

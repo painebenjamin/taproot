@@ -66,7 +66,12 @@ Items with ~strikethrough~ are complete in the main branch.
 
 # Installation
 
+Taproot requires an installed CUDA Toolkit and Python interpreter. If you already have this, skip straight to `pip install` - otherwise, the recommended installation method is to use [miniconda](https://docs.anaconda.com/miniconda/install/#basic-install-instructions), then create an environment like so:
+
 ```sh
+conda create -n taproot -y
+conda activate taproot
+conda install ffmpeg cuda-toolkit python=3.12 -y
 pip install taproot
 ```
 

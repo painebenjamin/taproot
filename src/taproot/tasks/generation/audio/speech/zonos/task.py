@@ -259,6 +259,7 @@ class ZonosHybridSpeechSynthesis(Task):
 
             if enhance:
                 audio, _ = self.enhance(audio, self.sample_rate)
+                audio = audio.unsqueeze(0)
 
             if (i < num_texts - 1):
                 if "speaker" in unconditional_keys:

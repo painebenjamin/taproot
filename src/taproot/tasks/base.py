@@ -1672,13 +1672,16 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         return False if self.offload_tasks is None else self.offload_tasks
 
-    def load(self) -> None:
+    def load(self, allow_optional: bool=False) -> None:
         """
         Load the task.
         Default triggers the pretrained loader.
         """
         # Models
         loadable_models = list(({} if not self.pretrained_models else self.pretrained_models).keys())
+        if allow_optional:
+            loadable_models += list(({} if not self.optional_pretrained_models else self.optional_pretrained_models).keys())
+
         offload_models = self.get_offload_models()
         offload_model_names: List[str] = []
 
@@ -1695,6 +1698,9 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
 
         # Tasks
         loadable_tasks = list(({} if not self.component_tasks else self.component_tasks).keys())
+        if allow_optional:
+            loadable_tasks += list(({} if not self.optional_component_tasks else self.optional_component_tasks).keys())
+
         offload_tasks = self.get_offload_tasks()
         offload_task_names: List[str] = []
 

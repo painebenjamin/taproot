@@ -96,7 +96,7 @@ class InceptionImageSimilarity(Task):
 
     """Overrides"""
 
-    def load(self) -> None:
+    def load(self, allow_optional: bool=False) -> None:
         """
         Load the model and any other resources required for the task.
         """

@@ -451,7 +451,7 @@ class LlamaTextGeneration(Task):
 
     """Override methods"""
 
-    def load(self) -> None:
+    def load(self, allow_optional: bool=False) -> None:
         """
         Load the model
         """

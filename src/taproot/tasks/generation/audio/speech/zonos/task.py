@@ -132,7 +132,7 @@ class ZonosHybridSpeechSynthesis(Task):
             sample_rate=sample_rate,
             seed=seed,
             output_format="float"
-        )
+        )[0]
 
         return result_audio, self.tasks.enhance.sample_rate
 

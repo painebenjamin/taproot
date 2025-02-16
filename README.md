@@ -71,9 +71,11 @@ Taproot requires an installed CUDA Toolkit and Python interpreter. If you alread
 ```sh
 conda create -n taproot -y
 conda activate taproot
-conda install ffmpeg cuda-toolkit python=3.12 -y
+conda install ffmpeg cuda-toolkit python=3.11 -y
 pip install taproot
 ```
+
+*Note: Python 3.11 is the recommended version for easiest dependency management, but Python 3.12 is fully supported. Python 3.13 is not recommended at this time due to inconsistent support among dependencies.*
 
 Some additional packages are available to install with the square-bracket syntax (e.g. `pip install taproot[a,b,c]`), these are:
 - **tools** - Additional packages for LLM tools like DuckDuckGo Search, BeautifulSoup (for web scraping), etc.

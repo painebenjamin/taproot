@@ -267,3 +267,8 @@ There are many deployment possibilities across networks, with configuration avai
 
 - [taproot.js](https://github.com/painebenjamin/taproot.js) - for the browser and node.js, available in ESM, UMD and IIFE
 - taproot.php - coming soon
+
+# Example Applications
+
+- [taproot-kokoro-demo](https://github.com/painebenjamin/taproot-kokoro-demo) - A simple web UI for generating speech from text and playing it in the browser.
+- [anachrovox](https://github.com/painebenjamin/anachrovox) - A real-time voice assistant using Llama 3, Kokoro, Whisper, and Hey Buddy.

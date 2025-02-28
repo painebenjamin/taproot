@@ -4,7 +4,7 @@ from typing import Type, Optional, Dict, Any, TYPE_CHECKING
 from taproot.util import PretrainedModelMixin
 
 if TYPE_CHECKING:
-    from ..schedulers import FlowMatchUniPCMultistepScheduler # type: ignore[attr-defined]
+    from taproot.util.diffusers_util.schedulers import FlowMatchUniPCMultistepScheduler # type: ignore[attr-defined]
 
 __all__ = ["PretrainedWanScheduler"]
 
@@ -17,7 +17,7 @@ class PretrainedWanScheduler(PretrainedModelMixin):
         """
         Get the model class for the Hunyuan Video Scheduler.
         """
-        from ..schedulers import FlowMatchUniPCMultistepScheduler # type: ignore[attr-defined]
+        from taproot.util.diffusers_util.schedulers import FlowMatchUniPCMultistepScheduler # type: ignore[attr-defined]
         return FlowMatchUniPCMultistepScheduler # type: ignore[no-any-return]
 
     @classmethod

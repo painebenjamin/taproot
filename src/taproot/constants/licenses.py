@@ -4,6 +4,7 @@ __all__ = [
     "LICENSE_MPL",
     "LICENSE_OPENRAIL",
     "LICENSE_OPENRAILPP",
+    "LICENSE_NVIDIA_OPEN_MODEL",
     "LICENSE_CC0",
     "LICENSE_CC_BY_1",
     "LICENSE_CC_BY_SA_1",
@@ -84,6 +85,8 @@ LICENSE_CC_BY_ND_4 = "cc-by-nd-4"
 LICENSE_CC_BY_NC_4 = "cc-by-nc-4"
 LICENSE_CC_BY_NC_SA_4 = "cc-by-nc-sa-4"
 LICENSE_CC_BY_NC_ND_4 = "cc-by-nc-nd-4"
+LICENSE_NVIDIA_OPEN_MODEL = "nvidia-open-model"
+
 # Aliases
 LICENSE_CC_BY = LICENSE_CC_BY_4
 LICENSE_CC_BY_SA = LICENSE_CC_BY_SA_4
@@ -99,6 +102,7 @@ LICENSE_URLS = {
     LICENSE_MPL: "https://www.mozilla.org/en-US/MPL/2.0/",
     LICENSE_OPENRAIL: "https://bigscience.huggingface.co/blog/bigscience-openrail-m",
     LICENSE_OPENRAILPP: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENSE.md",
+    LICENSE_NVIDIA_OPEN_MODEL: "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
     # CC0
     LICENSE_CC0: "https://creativecommons.org/publicdomain/zero/1.0/",
     # CC1
@@ -143,6 +147,7 @@ LICENSE_NAMES = {
     LICENSE_MPL: "Mozilla Public License 2.0",
     LICENSE_OPENRAIL: "OpenRAIL-M License",
     LICENSE_OPENRAILPP: "OpenRAIL++-M License",
+    LICENSE_NVIDIA_OPEN_MODEL: "NVIDIA Open Model License",
     # CC0
     LICENSE_CC0: "CC0 1.0 Universal",
     # CC1
@@ -188,6 +193,7 @@ LICENSE_ALLOWANCES = {
     LICENSE_MPL: (True, True, True, True, True, True),
     LICENSE_OPENRAIL: (True, True, True, True, True, True),
     LICENSE_OPENRAILPP: (True, True, True, True, True, True),
+    LICENSE_NVIDIA_OPEN_MODEL: (True, True, True, False, True, True),
     # CC0
     LICENSE_CC0: (False, True, True, False, True, True),
     # CC1

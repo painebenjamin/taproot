@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from taproot.constants import *
-from taproot.util import get_seed
+from taproot.util import get_seed, get_diffusers_scheduler_by_name
 from taproot.tasks.base import Task
 
 from .pretrained import (
@@ -75,6 +75,22 @@ class WanVideoGeneration1B(Task):
     license_hosting = True # Can host the model as a service
     license_copy_left = False # Derived works do not have to be open source
 
+    def load(self) -> None:
+        """
+        TODO: remove
+        """
+        return super().load()
+        import sys
+        sys.path.insert(0, "/home/benjamin/Wan2.1")
+        from wan.text2video import WanT2V
+        from wan.configs import t2v_1_3B
+        self.model = WanT2V(
+            config=t2v_1_3B,
+            checkpoint_dir="/home/benjamin/Wan2.1/Wan2.1-T2V-1.3B"
+        )
+        self.model.model.to("cpu")
+        self.model.text_encoder.to("cpu")
+
     def get_video_tensor_from_result(
         self,
         result: torch.Tensor
@@ -103,10 +119,13 @@ class WanVideoGeneration1B(Task):
         width: int=832,
         num_frames: int=81,
         num_inference_steps: int=50,
+        window_size: Optional[int]=None,
+        window_stride: Optional[int]=None,
         guidance_scale: float=5.0,
-        max_sequence_length: int=512,
+        guidance_end: Optional[float]=None,
         frame_rate: int=16,
         seed: Optional[SeedType]=None,
+        scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL]=None,
         output_format: VIDEO_OUTPUT_FORMAT_LITERAL="mp4",
         output_upload: bool=False,
     ) -> ImageResultType:
@@ -123,6 +142,12 @@ class WanVideoGeneration1B(Task):
             scheduler=self.pretrained.scheduler,
             device=self.device,
         )
+        if scheduler is not None:
+            pipeline.scheduler = get_diffusers_scheduler_by_name(
+                name=scheduler,
+                config=self.pretrained.scheduler.config
+            )
+
         seed = get_seed(seed)
         generator = torch.Generator()
         generator.manual_seed(seed)
@@ -133,17 +158,11 @@ class WanVideoGeneration1B(Task):
             num_frames=num_frames,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
+            guidance_end=guidance_end,
+            window_size=window_size,
+            window_stride=window_stride,
             generator=generator,
         )
-        """
-        results = self.model.generate(
-            prompt,
-            size=(width, height),
-            frame_num=num_frames,
-            sampling_steps=num_inference_steps,
-            seed=get_seed(seed),
-        )
-        """
         results = self.get_video_tensor_from_result(results)
         return self.get_output_from_video_result(
             results,

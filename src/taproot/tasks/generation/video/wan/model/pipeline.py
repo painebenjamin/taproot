@@ -14,7 +14,13 @@ from diffusers import SchedulerMixin
 from transformers import T5Tokenizer # type: ignore[import-untyped]
 from contextlib import nullcontext
 
-from taproot.util import maybe_use_tqdm, empty_cache
+from taproot.util import (
+    maybe_use_tqdm,
+    empty_cache,
+    logger,
+    log_duration,
+    sliding_1d_windows,
+)
 
 class WanPipeline:
     """
@@ -27,7 +33,7 @@ class WanPipeline:
         transformer: WanModel,
         vae: WanVideoVAE,
         scheduler: SchedulerMixin,
-        dtype: torch.dtype=torch.bfloat16,
+        dtype: torch.dtype=torch.float16,
         device: Optional[torch.device]=None,
         default_negative_prompt: str="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
     ) -> None:
@@ -79,10 +85,20 @@ class WanPipeline:
 
         passed_args = [num_inference_steps, timesteps, sigmas]
         num_passed_args = sum([arg is not None for arg in passed_args])
+
         if num_passed_args != 1:
             raise ValueError(
                 "Exactly one of `num_inference_steps`, `timesteps`, or `sigmas` must be passed."
             )
+
+        accepts_shift = "shift" in set(
+            inspect.signature(self.scheduler.set_timesteps)
+                .parameters
+                .keys()
+        )
+
+        if not accepts_shift:
+            kwargs.pop("shift", None)
 
         if timesteps is not None:
             accepts_timesteps = (
@@ -155,7 +171,85 @@ class WanPipeline:
 
         return [u[:v] for u, v in zip(context, seq_len)][0] # type: ignore [no-any-return]
 
-    @torch.inference_mode()
+    @torch.no_grad()
+    def predict_noise_at_timestep(
+        self,
+        timestep: torch.Tensor,
+        latents: List[torch.Tensor],
+        cond: List[torch.Tensor],
+        uncond: Optional[List[torch.Tensor]],
+        window_size: Optional[int],
+        window_stride: Optional[int],
+        guidance_scale: float,
+        seq_len: int,
+        do_classifier_free_guidance: bool,
+    ) -> torch.Tensor:
+        """
+        Predict noise at a given timestep
+        """
+        if window_size and window_stride:
+            num_frames = latents[0].shape[1]
+            windows = sliding_1d_windows(
+                num_frames,
+                window_size,
+                window_stride
+            )
+            num_windows = len(windows)
+            noise_pred_count = torch.zeros_like(latents[0])
+            noise_pred_total = torch.zeros_like(latents[0])
+
+            for i, (start, end) in enumerate(windows):
+                latent_model_input = [l[:, start:end] for l in latents]
+
+                if do_classifier_free_guidance and uncond is not None:
+                    [noise_pred_cond, noise_pred_uncond] = self.transformer(
+                        latent_model_input + latent_model_input,    
+                        t=timestep,
+                        context=cond + uncond,
+                        seq_len=seq_len
+                    )
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
+                else:
+                    noise_pred = self.transformer(
+                        latent_model_input,
+                        t=timestep,
+                        context=cond,
+                        seq_len=seq_len
+                    )[0]
+
+                window_mask = torch.ones_like(noise_pred)
+
+                if i > 0:
+                    window_mask[:, :window_stride] = torch.linspace(0, 1, window_stride, device=noise_pred.device).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+                if i < num_windows - 1:
+                    window_mask[:, -window_stride:] = torch.linspace(1, 0, window_stride, device=noise_pred.device).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+                noise_pred_total[:, start:end] += noise_pred * window_mask
+                noise_pred_count[:, start:end] += window_mask
+
+            noise_pred = noise_pred_total / noise_pred_count
+        else:
+            latent_model_input = latents
+            noise_pred_cond = self.transformer(
+                latent_model_input,
+                t=timestep,
+                context=cond,
+                seq_len=seq_len
+            )[0]
+
+            if do_classifier_free_guidance and uncond is not None:
+                noise_pred_uncond = self.transformer(
+                    latent_model_input,
+                    t=timestep,
+                    context=uncond,
+                    seq_len=seq_len
+                )[0]
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
+            else:
+                noise_pred = noise_pred_cond
+
+        return noise_pred
+
     def __call__(
         self,
         prompt: str,
@@ -165,7 +259,10 @@ class WanPipeline:
         height: int=480,
         shift: float=5.0,
         guidance_scale: float=5.0,
+        guidance_end: Optional[float]=None,
         num_inference_steps: int=50,
+        window_size: Optional[int]=None,
+        window_stride: Optional[int]=None,
         generator: Optional[torch.Generator]=None,
         use_tqdm: bool=True,
         cpu_offload: bool=True,
@@ -196,7 +293,10 @@ class WanPipeline:
             (e_h * e_w) / (p_h * p_w) * e_t
         )
 
-        use_classifier_free_guidance = guidance_scale > 1.0
+        if guidance_end is None:
+            guidance_end = 1.0
+
+        do_classifier_free_guidance = guidance_scale > 1.0
 
         # Get timesteps
         timesteps, num_inference_steps = self.retrieve_timesteps(
@@ -204,18 +304,24 @@ class WanPipeline:
             device=self.device,
             shift=shift,
         )
+        guidance_end_step = int(guidance_end * num_inference_steps) - 1
 
         # Encode prompts
         if cpu_offload:
-            self.text_encoder.to(self.device)
+            with log_duration("onloading text encoder"):
+                self.text_encoder.to(self.device)
 
-        cond = [self.encode_prompt(prompt).to(self.dtype)]
-        if use_classifier_free_guidance:
-            uncond = [self.encode_prompt(negative_prompt or self.default_negative_prompt).to(self.dtype)]
+        with log_duration("encoding prompt"):
+            cond = [self.encode_prompt(prompt).to(self.dtype)]
+
+        if do_classifier_free_guidance:
+            with log_duration("encoding negative prompt"):
+                uncond = [self.encode_prompt(negative_prompt or self.default_negative_prompt).to(self.dtype)]
 
         if cpu_offload:
-            self.text_encoder.to("cpu")
-            empty_cache()
+            with log_duration("offloading text encoder"):
+                self.text_encoder.to("cpu")
+                empty_cache()
 
         # Denoising loop
         noise = torch.randn(*encoded_shape, generator=generator, dtype=torch.float32)
@@ -228,35 +334,28 @@ class WanPipeline:
 
         with amp.autocast("cuda", dtype=self.dtype), torch.no_grad(), sync_context(): # type: ignore[attr-defined]
             if cpu_offload:
-                self.transformer.to(self.device)
+                with log_duration("onloading transformer"):
+                    self.transformer.to(self.device)
 
             latents = [noise]
 
-            for t in maybe_use_tqdm(
-                timesteps,
+            for i, t in maybe_use_tqdm(
+                enumerate(timesteps),
                 use_tqdm=use_tqdm,
                 total=num_inference_steps
             ):
                 timestep = torch.stack([t])
-                latent_model_input = latents
-
-                noise_pred_cond = self.transformer(
-                    latent_model_input,
-                    t=timestep,
-                    context=cond,
-                    seq_len=seq_len
-                )[0]
-                if use_classifier_free_guidance:
-                    noise_pred_uncond = self.transformer(
-                        latent_model_input,
-                        t=timestep,
-                        context=uncond,
-                        seq_len=seq_len
-                    )[0]
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
-                else:
-                    noise_pred = noise_pred_cond
-
+                noise_pred = self.predict_noise_at_timestep(
+                    timestep=timestep,
+                    latents=latents,
+                    cond=cond,
+                    uncond=uncond,
+                    window_size=window_size,
+                    window_stride=window_stride,
+                    guidance_scale=guidance_scale,
+                    seq_len=seq_len,
+                    do_classifier_free_guidance=do_classifier_free_guidance,
+                )
                 temp_x0 = self.scheduler.step( # type: ignore[attr-defined]
                     noise_pred.unsqueeze(0),
                     t,
@@ -266,16 +365,24 @@ class WanPipeline:
                 )[0]
                 latents = [temp_x0.squeeze(0)]
 
+                if i >= guidance_end_step and do_classifier_free_guidance:
+                    logger.debug(f"Disabling guidance at step {i}")
+                    do_classifier_free_guidance = False
+
             # Decode
             if cpu_offload:
-                self.transformer.to("cpu")
-                empty_cache()
-                self.vae.to(self.device)
+                with log_duration("offloading transformer"):
+                    self.transformer.to("cpu")
+                    empty_cache()
+
+                with log_duration("onloading vae"):
+                    self.vae.to(self.device)
 
             videos = self.vae.decode(latents)
 
         if cpu_offload:
-            self.vae.to("cpu")
-            empty_cache()
+            with log_duration("offloading vae"):
+                self.vae.to("cpu")
+                empty_cache()
 
         return videos[0]

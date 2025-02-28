@@ -55,8 +55,9 @@ DIFFUSERS_SCHEDULER_LITERAL = Literal[
     "dpm_cogvideox", "dpmsolver_multistep", "dpmsolver_multistep_karras",
     "dpmsolver_sde", "dpmsolver_sde", "dpmsolver_sde_multistep",
     "dpmsolver_sde_multistep_karras", "dpmsolver_singlestep",
-    "dpmsolver_singlestep_karras", "edm_dpmsolver_multistep", "edm_euler",
-    "euler_ancestral_discrete", "euler_discrete", "euler_discrete_karras",
+    "dpmsolver_singlestep_karras", "flow_match_dpmsolver_multistep", "flow_match_dpmsolver_multistep_dynamic",
+    "flow_match_dpmsolver_sde_multistep", "flow_match_dpmsolver_sde_multistep_dynamic",
+    "edm_dpmsolver_multistep", "edm_euler", "euler_ancestral_discrete", "euler_discrete", "euler_discrete_karras",
     "flow_match_euler_discrete", "flow_match_euler_discrete_karras",
     "flow_match_euler_discrete_beta", "flow_match_euler_discrete_exponential", 
     "flow_match_euler_discrete_dynamic", "flow_match_euler_discrete_karras_dynamic",
@@ -64,7 +65,7 @@ DIFFUSERS_SCHEDULER_LITERAL = Literal[
     "flow_match_heun_discrete", "heun_discrete",
     "ipndm", "k_dpm_2_ancestral_discrete", "k_dpm_2_ancestral_discrete_karras",
     "k_dpm_2_discrete", "k_dpm_2_discrete_karras", "lcm", "lms_discrete",
-    "lms_discrete_karras", "pndm", "tcd", "unipc"
+    "lms_discrete_karras", "pndm", "tcd", "unipc", "flow_match_unipc", "flow_match_unipc_dynamic",
 ]
 DIFFUSERS_MODEL_TYPE_LITERAL = Literal["sd", "sdxl", "sd3", "flux"]
 MULTIDIFFUSION_MASK_TYPE_LITERAL = Literal["gaussian", "bilinear", "constant"]

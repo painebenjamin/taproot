@@ -70,7 +70,10 @@ def get_diffusers_scheduler_by_name(
     """
     if not diffusers_is_available():
         raise ImportError("Diffusers is not available. Configure your task to require it if needed.")
+
     use_karras_sigmas = name.endswith("_karras")
+    use_dynamic_shifting = "_dynamic" in name
+
     if config is not None:
         config["use_karras_sigmas"] = use_karras_sigmas
     if name == "ddim":
@@ -125,6 +128,30 @@ def get_diffusers_scheduler_by_name(
         if config is None:
             return DPMSolverSinglestepScheduler(use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
         return DPMSolverSinglestepScheduler.from_config(config, use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
+    elif name in ["flow_match_dpmsolver_multistep", "flow_match_dpmsolver_multistep_dynamic"]:
+        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler
+        if config is None:
+            return FlowMatchDPMSolverMultistepScheduler(
+                dynamic_shifting=use_dynamic_shifting,
+                algorithm_type="dpmsolver++"
+            ) # type: ignore[no-any-return]
+        return FlowMatchDPMSolverMultistepScheduler.from_config( # type: ignore[no-any-return]
+            config,
+            dynamic_shifting=use_dynamic_shifting,
+            algorithm_type="dpmsolver++"
+        )
+    elif name in ["flow_match_dpmsolver_sde_multistep", "flow_match_dpmsolver_sde_multistep_dynamic"]:
+        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler
+        if config is None:
+            return FlowMatchDPMSolverMultistepScheduler(
+                dynamic_shifting=use_dynamic_shifting,
+                algorithm_type="sde-dpmsolver++"
+            )
+        return FlowMatchDPMSolverMultistepScheduler.from_config( # type: ignore[no-any-return]
+            config,
+            dynamic_shifting=use_dynamic_shifting,
+            algorithm_type="sde-dpmsolver++"
+        )
     elif name == "edm_dpmsolver_multistep":
         from diffusers.schedulers.scheduling_edm_dpmsolver_multistep import EDMDPMSolverMultistepScheduler
         if config is None:
@@ -156,10 +183,8 @@ def get_diffusers_scheduler_by_name(
         "flow_match_euler_discrete_exponential_dynamic",
     ]:
         from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
-        use_karras_sigmas = name in ["flow_match_euler_discrete_karras", "flow_match_euler_discrete_karras_dynamic"]
-        use_beta_sigmas = name in ["flow_match_euler_discrete_beta", "flow_match_euler_discrete_beta_dynamic"]
-        use_exponential_sigmas = name in ["flow_match_euler_discrete_exponential", "flow_match_euler_discrete_exponential_dynamic"]
-        use_dynamic_shifting = name in ["flow_match_euler_discrete_dynamic", "flow_match_euler_discrete_karras_dynamic", "flow_match_euler_discrete_beta_dynamic", "flow_match_euler_discrete_exponential_dynamic"]
+        use_beta_sigmas = "_beta" in name
+        use_exponential_sigmas = "_exponential" in name
 
         if config is None:
             return FlowMatchEulerDiscreteScheduler( # type: ignore[no-any-return]
@@ -168,6 +193,7 @@ def get_diffusers_scheduler_by_name(
                 use_exponential_sigmas=use_exponential_sigmas,
                 use_dynamic_shifting=use_dynamic_shifting
             )
+
         return FlowMatchEulerDiscreteScheduler.from_config( # type: ignore[no-any-return]
             config,
             use_karras_sigmas=use_karras_sigmas,
@@ -225,5 +251,13 @@ def get_diffusers_scheduler_by_name(
         if config is None:
             return UniPCMultistepScheduler() # type: ignore[no-any-return]
         return UniPCMultistepScheduler.from_config(config) # type: ignore[no-any-return]
+    elif name in ["flow_match_unipc", "flow_match_unipc_dynamic"]:
+        from .schedulers.flow_match_unipc import FlowMatchUniPCMultistepScheduler
+        if config is None:
+            return FlowMatchUniPCMultistepScheduler(dynamic_shifting=use_dynamic_shifting) # type: ignore[no-any-return]
+        return FlowMatchUniPCMultistepScheduler.from_config( # type: ignore[no-any-return]
+            config,
+            dynamic_shifting=use_dynamic_shifting
+        )
     else:
         raise ValueError(f"Invalid scheduler name: {name}")

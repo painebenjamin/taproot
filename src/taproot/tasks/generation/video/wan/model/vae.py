@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from typing import Any, Optional, Union, List, Tuple, Mapping
+from typing import Any, Optional, Union, List, Tuple, Sequence
 from typing_extensions import Literal
 
 from einops import rearrange
@@ -158,7 +158,7 @@ class Resample(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        feat_cache: Optional[Mapping[int, Union[str, torch.Tensor]]]=None,
+        feat_cache: Optional[Sequence[Union[str, torch.Tensor]]]=None,
         feat_idx: List[int]=[0]
     ) -> torch.Tensor:
         """
@@ -170,7 +170,7 @@ class Resample(nn.Module):
         b, c, t, h, w = x.size()
 
         if self.mode == "upsample3d":
-            if isinstance(feat_cache, dict):
+            if feat_cache is not None:
                 idx = feat_idx[0]
                 if feat_cache[idx] is None:
                     feat_cache[idx] = "Rep"
@@ -222,7 +222,7 @@ class Resample(nn.Module):
         x = rearrange(x, "(b t) c h w -> b c t h w", t=t)
 
         if self.mode == "downsample3d":
-            if isinstance(feat_cache, dict):
+            if feat_cache is not None:
                 idx = feat_idx[0]
                 if feat_cache[idx] is None:
                     feat_cache[idx] = x.clone()
@@ -273,7 +273,7 @@ class ResidualBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        feat_cache: Optional[Mapping[int, Union[str, torch.Tensor]]]=None,
+        feat_cache: Optional[Sequence[Union[str, torch.Tensor]]]=None,
         feat_idx: List[int]=[0]
     ) -> torch.Tensor:
         """
@@ -284,7 +284,7 @@ class ResidualBlock(nn.Module):
         """
         h = self.shortcut(x)
         for layer in self.residual:
-            if isinstance(layer, CausalConv3d) and isinstance(feat_cache, dict):
+            if isinstance(layer, CausalConv3d) and feat_cache is not None:
                 idx = feat_idx[0]
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and isinstance(feat_cache[idx], torch.Tensor):
@@ -430,7 +430,7 @@ class Encoder3d(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        feat_cache: Optional[Mapping[int, Union[str, torch.Tensor]]]=None,
+        feat_cache: Optional[Sequence[Union[str, torch.Tensor]]]=None,
         feat_idx: List[int]=[0]
     ) -> torch.Tensor:
         """
@@ -439,7 +439,7 @@ class Encoder3d(nn.Module):
         :param feat_idx: feature index
         :return: output tensor [B, C, T, H, W]
         """
-        if isinstance(feat_cache, dict):
+        if feat_cache is not None:
             idx = feat_idx[0]
             cache_x = x[:, :, -CACHE_T:, :, :].clone()
             if cache_x.shape[2] < 2 and isinstance(feat_cache[idx], torch.Tensor):
@@ -473,7 +473,7 @@ class Encoder3d(nn.Module):
 
         ## head
         for layer in self.head:
-            if isinstance(layer, CausalConv3d) and isinstance(feat_cache, dict):
+            if isinstance(layer, CausalConv3d) and feat_cache is not None:
                 idx = feat_idx[0]
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and isinstance(feat_cache[idx], torch.Tensor):
@@ -570,7 +570,7 @@ class Decoder3d(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        feat_cache: Optional[Mapping[int, Union[str, torch.Tensor]]]=None,
+        feat_cache: Optional[Sequence[Union[str, torch.Tensor]]]=None,
         feat_idx: List[int]=[0]
     ) -> torch.Tensor:
         """
@@ -580,7 +580,7 @@ class Decoder3d(nn.Module):
         :return: output tensor [B, C, T, H, W]
         """
         ## conv1
-        if isinstance(feat_cache, dict):
+        if feat_cache is not None:
             idx = feat_idx[0]
             cache_x = x[:, :, -CACHE_T:, :, :].clone()
             if cache_x.shape[2] < 2 and isinstance(feat_cache[idx], torch.Tensor):
@@ -614,7 +614,7 @@ class Decoder3d(nn.Module):
 
         ## head
         for layer in self.head:
-            if isinstance(layer, CausalConv3d) and isinstance(feat_cache, dict):
+            if isinstance(layer, CausalConv3d) and feat_cache is not None:
                 idx = feat_idx[0]
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and isinstance(feat_cache[idx], torch.Tensor):

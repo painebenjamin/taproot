@@ -814,6 +814,7 @@ def dispatcher(
                 certfile=certfile,
                 keyfile=keyfile,
                 cafile=cafile,
+                default_address=DEFAULT_DISPATCHER_ADDRESS,
                 control_encryption_key=control_encryption_key
             )
 

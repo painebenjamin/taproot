@@ -10,8 +10,8 @@ from .quantization_util import OptimumQuantoQuantizer
 if TYPE_CHECKING:
     import torch
     from transformers.configuration_utils import PretrainedConfig # type: ignore[import-not-found,import-untyped,unused-ignore]
-    from transformers.quantizers import AutoHfQuantizer as TransformersAutoQuantizer # type: ignore[import-not-found,import-untyped,unused-ignore]
-    from diffusers.quantizers import DiffusersAutoQuantizer # type: ignore[attr-defined]
+    from transformers.quantizers.base import HfQuantizer # type: ignore[import-not-found,import-untyped,unused-ignore]
+    from diffusers.quantizers.base import DiffusersQuantizer
 
 __all__ = ["PretrainedModelMixin"]
 
@@ -86,7 +86,7 @@ class PretrainedModelMixin:
         return None
 
     @classmethod
-    def get_quantization_config(cls) -> Any:
+    def get_quantization_config(cls, dtype: Optional[torch.dtype]=None) -> Any:
         """
         Gets quantization configuration.
         """
@@ -96,13 +96,13 @@ class PretrainedModelMixin:
         if cls.quantization.startswith("bitsandbytes"):
             if not cls.is_bitsandbytes_available():
                 return None
-            import torch
-            if cls.is_diffusers_model():
-                from diffusers import BitsAndBytesConfig # type: ignore[attr-defined,import-not-found,unused-ignore]
-            elif cls.is_transformers_model():
+
+            if cls.is_transformers_model():
                 from transformers import BitsAndBytesConfig # type: ignore[import-untyped,import-not-found,unused-ignore,no-redef]
             else:
-                raise ValueError("Quantization is only supported for diffusers and transformers models.")
+                from diffusers import BitsAndBytesConfig # type: ignore[attr-defined,import-not-found,unused-ignore]
+
+            import torch
             kwargs: Dict[str, Any] = {}
             if cls.quantization == "bitsandbytes_4bit" or cls.quantization == "bitsandbytes_nf4":
                 kwargs["load_in_4bit"] = True
@@ -113,7 +113,16 @@ class PretrainedModelMixin:
                 kwargs["load_in_8bit"] = True
             else:
                 raise ValueError(f"Invalid quantization method {cls.quantization}.")
-            return BitsAndBytesConfig(**kwargs) # type: ignore[no-untyped-call]
+            return BitsAndBytesConfig(**kwargs)
+        elif cls.quantization.startswith("gguf"):
+            if not cls.is_gguf_available():
+                return None
+
+            if cls.is_transformers_model():
+                raise ValueError("GGUF quantization is not supported for transformers models.")
+
+            from diffusers import GGUFQuantizationConfig # type: ignore[attr-defined,import-not-found,unused-ignore]
+            return GGUFQuantizationConfig(compute_dtype=dtype)
         elif cls.quantization.startswith("quanto"):
             if not cls.is_optimum_quanto_available():
                 return None
@@ -192,6 +201,19 @@ class PretrainedModelMixin:
         except ImportError:
             from ..log_util import logger
             logger.warning("Optimum-Quanto library requested but not available. Use `pip install optimum-quanto` to install and reduce model size.")
+            return False
+
+    @classmethod
+    def is_gguf_available(cls) -> bool:
+        """
+        Check if the gguf library is available.
+        """
+        try:
+            import gguf # type: ignore[import-not-found,import-untyped,unused-ignore]
+            return gguf is not None
+        except ImportError:
+            from ..log_util import logger
+            logger.warning("GGUF library requested but not available. Use `pip install gguf` to install and reduce model size.")
             return False
 
     @classmethod
@@ -357,7 +379,7 @@ class PretrainedModelMixin:
         if cls.is_transformers_model():
             from transformers.quantizers import AutoHfQuantizer as TransformersAutoQuantizer # type: ignore[import-not-found,import-untyped,unused-ignore]
             quant_cls = TransformersAutoQuantizer
-        elif cls.is_diffusers_model():
+        else:
             from diffusers.quantizers import DiffusersAutoQuantizer # type: ignore[attr-defined,import-not-found,unused-ignore]
             quant_cls = DiffusersAutoQuantizer
 
@@ -380,7 +402,8 @@ class PretrainedModelMixin:
             if dtype is not None and isinstance(dtype, str):
                 dtype = get_torch_dtype(dtype)
 
-            quantization_config = cls.get_quantization_config()
+            quantization_config = cls.get_quantization_config(dtype=dtype)
+            is_gguf_quant = False
             if quantization_config is not None:
                 logger.debug(f"Using quantization config {quantization_config}, {cls.pre_quantized=}")
 
@@ -392,8 +415,14 @@ class PretrainedModelMixin:
                         pre_quantized=cls.pre_quantized
                     )
                 else:
-                    quantizer = quant_cls.from_config(quantization_config, pre_quantized=cls.pre_quantized)
-                    use_keep_in_fp32_modules = (load_target._keep_in_fp32_modules is not None) and (
+                    from_config_kwargs: Dict[str, Any] = {}
+                    if quant_cls.__name__ == "DiffusersAutoQuantizer":
+                        if type(quantization_config).__name__ == "GGUFQuantizationConfig":
+                            is_gguf_quant = True
+                        else:
+                            from_config_kwargs["pre_quantized"] = cls.pre_quantized
+                    quantizer = quant_cls.from_config(quantization_config, **from_config_kwargs)
+                    use_keep_in_fp32_modules = (getattr(load_target, "_keep_in_fp32_modules", None) is not None) and (
                         (dtype is not torch.float32) or hasattr(quantizer, "use_keep_in_fp32_modules")
                     )
             else:
@@ -410,12 +439,13 @@ class PretrainedModelMixin:
                     # Disable gradient computation for all parameters
                     param.requires_grad = False
 
-                logger.debug(f"Preprocessing model {type(load_target).__name__} with quantizer {type(quantizer).__name__}")
-                quantizer.preprocess_model(
-                    model=load_target,
-                    device_map="auto",
-                    keep_in_fp32_modules=keep_in_fp32_modules,
-                )
+                if not is_gguf_quant:
+                    logger.debug(f"Preprocessing model {type(load_target).__name__} with quantizer {type(quantizer).__name__}")
+                    quantizer.preprocess_model(
+                        model=load_target,
+                        device_map="auto",
+                        keep_in_fp32_modules=keep_in_fp32_modules,
+                    )
             else:
                 keep_in_fp32_modules = None
 
@@ -631,7 +661,7 @@ class PretrainedModelMixin:
         model_file: str,
         device: Optional[torch.device]=None,
         dtype: Optional[torch.dtype]=None,
-        quantizer: Optional[Union[TransformersAutoQuantizer, DiffusersAutoQuantizer]]=None,
+        quantizer: Optional[Union[HfQuantizer, DiffusersQuantizer]]=None,
         keep_in_fp32_modules: Optional[List[str]]=None,
     ) -> List[str]:
         """
@@ -642,19 +672,37 @@ class PretrainedModelMixin:
         import torch
         from taproot.util import load_state_dict, logger, empty_cache
         from accelerate.utils import set_module_tensor_to_device # type: ignore[import-not-found,import-untyped,unused-ignore]
+
         if quantizer is None:
             device = device or torch.device("cpu")
 
         dtype = dtype or torch.float32
         is_quantized = quantizer is not None
         is_quant_method_bnb = getattr(model, "quantization_method", None) == "bitsandbytes"
+        is_quant_method_gguf = quantizer is not None and type(quantizer).__name__ == "GGUFQuantizer"
 
         use_check_quantized_param = "check_quantized_param" in dir(quantizer)
         use_check_if_quantized_param = "check_if_quantized_param" in dir(quantizer)
 
         empty_state_dict = model.state_dict()
-        state_dict = load_state_dict(model_file)
+
+        if is_quant_method_gguf:
+            from diffusers.models.model_loading_utils import load_gguf_checkpoint
+            state_dict = load_gguf_checkpoint(model_file) # type: ignore[no-untyped-call]
+        else:
+            state_dict = load_state_dict(model_file)
+
         unexpected_keys = [param_name for param_name in state_dict if param_name not in empty_state_dict]
+
+        if is_quant_method_gguf:
+            # We need the state dictionary in order to pre-process GGUF quantization
+            logger.debug(f"Preprocessing model {type(model).__name__} with quantizer {type(quantizer).__name__}")
+            quantizer.preprocess_model( # type: ignore[union-attr]
+                model=model, # type: ignore[arg-type]
+                device_map="auto",
+                keep_in_fp32_modules=getattr(model, "_keep_in_fp32_modules", []),
+                state_dict=state_dict,
+            )
 
         def is_quantized_param(param: torch.Tensor) -> bool:
             if not is_quantized:
@@ -662,7 +710,7 @@ class PretrainedModelMixin:
             if use_check_quantized_param:
                 return bool(quantizer.check_quantized_param(model, param, param_name, state_dict, param_device=device)) # type: ignore[union-attr]
             elif use_check_if_quantized_param:
-                return bool(quantizer.check_if_quantized_param(model, param, param_name, state_dict, param_device=device)) # type: ignore[union-attr]
+                return bool(quantizer.check_if_quantized_param(model, param, param_name, state_dict, param_device=device)) # type: ignore[union-attr,arg-type]
             return False
 
         for param_name, param in state_dict.items():
@@ -691,18 +739,19 @@ class PretrainedModelMixin:
                     set_module_kwargs["dtype"] = dtype
 
             # bnb params are flattened.
+            # gguf quants have a different shape based on the type of quantization applied
             if empty_state_dict[param_name].shape != param.shape: # type: ignore[union-attr,unused-ignore]
                 if (
                     is_quantized
-                    and is_quant_method_bnb
+                    and (is_quant_method_bnb or is_quant_method_gguf)
                     and getattr(quantizer, "pre_quantized", False)
                     and "check_quantized_param_shape" in dir(quantizer)
                     and is_quantized_param(param) # type: ignore[arg-type,unused-ignore]
                 ):
                     quantizer.check_quantized_param_shape(param_name, empty_state_dict[param_name], param) # type: ignore[union-attr]
-                elif not is_quant_method_bnb:
+                else:
                     raise ValueError(
-                        f"Cannot load because {param_name} expected shape {empty_state_dict[param_name]}, but got {param.shape}. If you want to instead overwrite randomly initialized weights, please make sure to pass both `low_cpu_mem_usage=False` and `ignore_mismatched_sizes=True`. For more information, see also: https://github.com/huggingface/diffusers/issues/1619#issuecomment-1345604389 as an example." # type: ignore[union-attr,unused-ignore]
+                        f"Cannot load because {param_name} expected shape {empty_state_dict[param_name].shape}, but got {param.shape}. If you want to instead overwrite randomly initialized weights, please make sure to pass both `low_cpu_mem_usage=False` and `ignore_mismatched_sizes=True`. For more information, see also: https://github.com/huggingface/diffusers/issues/1619#issuecomment-1345604389 as an example." # type: ignore[union-attr,unused-ignore]
                     )
 
             if (

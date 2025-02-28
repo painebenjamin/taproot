@@ -130,11 +130,15 @@ def get_file_name_from_url(url: str) -> str:
     return os.path.basename(url.split("?")[0])
 
 @lru_cache(maxsize=128)
-def get_file_size_from_url(remote_url: str) -> Optional[int]:
+def get_file_size_from_url(
+    remote_url: str,
+    raise_for_status: bool=False
+) -> Optional[int]:
     """
     Gets the expected file size from a URL.
 
     :param remote_url: The URL to get the size from
+    :param raise_for_status: Whether to raise an exception if the request fails. Defaults to False.
     :return: The expected file size, or None if it can't be determined
     """
     headers = {}
@@ -142,7 +146,12 @@ def get_file_size_from_url(remote_url: str) -> Optional[int]:
     if authorization is not None:
         headers["Authorization"] = authorization
     head = requests.head(remote_url, headers=headers, allow_redirects=True)
-    head.raise_for_status()
+    try:
+        head.raise_for_status()
+    except Exception as e:
+        if raise_for_status:
+            raise e
+        return None
     expected_length = head.headers.get("Content-Length", None)
     if expected_length is not None:
         return int(expected_length)

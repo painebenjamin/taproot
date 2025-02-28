@@ -1,27 +1,27 @@
 from __future__ import annotations
 
-from taproot.util import PretrainedModelMixin, get_added_token_dict
+from typing import Any, Dict, Optional, Type, Union, TYPE_CHECKING
 
-from typing import Optional, Dict, Any, Type, Union, TYPE_CHECKING
+from taproot.util import PretrainedModelMixin, get_added_token_dict
 
 if TYPE_CHECKING:
     from transformers import T5Tokenizer # type: ignore[import-untyped]
 
-__all__ = ["T5XXLTokenizer"]
+__all__ = ["PretrainedWanTokenizer"]
 
-class T5XXLTokenizer(PretrainedModelMixin):
+class PretrainedWanTokenizer(PretrainedModelMixin):
     """
-    T5-XXL tokenizer.
+    The Wan tokenizer class (multilingual T5)
     """
     init_file_urls = {
-        "vocab_file": "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/text-encoding-t5-xxl-vocab.model",
-        "special_tokens_map_file": "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/text-encoding-t5-xxl-special-tokens-map.json",
+        "vocab_file": "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/text-encoding-umt5-xxl-vocab.model",
+        "special_tokens_map_file": "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/text-encoding-umt5-xxl-special-tokens-map.json",
     }
 
     @classmethod
     def get_model_class(cls) -> Type[T5Tokenizer]:
         """
-        The model class for the T5 tokenizer.
+        Returns the model class.
         """
         from transformers import T5Tokenizer
         return T5Tokenizer # type: ignore[no-any-return]
@@ -29,7 +29,7 @@ class T5XXLTokenizer(PretrainedModelMixin):
     @classmethod
     def get_default_config(cls) -> Optional[Dict[str, Any]]:
         """
-        The default configuration for the T5 tokenizer.
+        Returns the default configuration for the model.
         """
         added_tokens_decoder: Dict[Union[str, int], Dict[str, Union[str, bool]]] = {
             "0": {
@@ -49,6 +49,14 @@ class T5XXLTokenizer(PretrainedModelMixin):
                 "special": True
             },
             "2": {
+                "content": "<s>",
+                "lstrip": False,
+                "normalized": False,
+                "rstrip": False,
+                "single_word": False,
+                "special": True
+            },
+            "3": {
                 "content": "<unk>",
                 "lstrip": False,
                 "normalized": False,
@@ -58,27 +66,28 @@ class T5XXLTokenizer(PretrainedModelMixin):
             },
         }
 
-        for i in range(100):
-            added_tokens_decoder[f"{32000 + i}"] = {
-                "content": f"<extra_id_{99-i}>",
-                "lstrip": True,
+        for i in range(300):
+            added_tokens_decoder[f"{256000 + i}"] = {
+                "content": f"<extra_id_{299-i}>",
+                "lstrip": False,
                 "normalized": False,
-                "rstrip": True,
+                "rstrip": False,
                 "single_word": False,
                 "special": True
             }
 
         return {
-            "add_prefix_space": True,
             "added_tokens_decoder": get_added_token_dict(added_tokens_decoder),
-            "additional_special_tokens": [f"<extra_id_{i}>" for i in range(100)],
+            "additional_special_tokens": [f"<extra_id_{i}>" for i in range(300)],
+            "bos_token": "<s>",
             "clean_up_tokenization_spaces": True,
             "eos_token": "</s>",
-            "extra_ids": 100,
-            "legacy": True,
-            "model_max_length": 512,
+            "extra_ids": 300,
+            "model_max_length": 1000000000000000019884624838656,
             "pad_token": "<pad>",
             "sp_model_kwargs": {},
+            "spaces_between_special_tokens": False,
             "tokenizer_class": "T5Tokenizer",
+            "legacy": True,
             "unk_token": "<unk>"
         }

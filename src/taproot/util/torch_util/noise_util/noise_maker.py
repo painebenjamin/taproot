@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+
 from dataclasses import dataclass
 from typing import Optional, Union, Tuple, Callable, Any, Literal, Dict, Literal, TYPE_CHECKING
 
@@ -27,7 +29,8 @@ __all__ = [
     "NOISE_METHOD_LITERAL",
     "POWER_TYPE_LITERAL",
     "NoiseMaker",
-    "make_noise"
+    "make_noise",
+    "reschedule_noise",
 ]
 
 @dataclass
@@ -39,7 +42,7 @@ class NoiseMaker:
     channels: int
     height: int
     width: int
-    animation_frames: Optional[int] = None
+    frames: Optional[int] = None
     generator: Optional[Generator] = None
     device: Optional[Device] = None
     dtype: Optional[DType] = None
@@ -52,11 +55,11 @@ class NoiseMaker:
         """
         Gets the shape of the return tensor
         """
-        if self.animation_frames:
+        if self.frames:
             return (
                 self.batch_size,
                 self.channels,
-                self.animation_frames,
+                self.frames,
                 self.height,
                 self.width,
              )
@@ -91,7 +94,7 @@ class NoiseMaker:
         """
         import torch
         from .power import PowerLawNoise
-        frames = 1 if self.animation_frames is None else self.animation_frames
+        frames = 1 if self.frames is None else self.frames
         shape = (
             frames,
             self.batch_size,
@@ -115,7 +118,7 @@ class NoiseMaker:
 
         from einops import rearrange # type: ignore[import-not-found, unused-ignore]
         noise = rearrange(noise, "f b h w c -> b c f h w")
-        if self.animation_frames is None:
+        if self.frames is None:
             noise = noise[:, :, 0, :, :]
         return noise.to(self.device, dtype=self.dtype)
 
@@ -126,7 +129,7 @@ class NoiseMaker:
         import torch
         import numpy as np
         import opensimplex # type: ignore[import-not-found,unused-ignore]
-        frames = 1 if self.animation_frames is None else self.animation_frames
+        frames = 1 if self.frames is None else self.frames
         shape = (
             frames,
             self.batch_size,
@@ -147,7 +150,7 @@ class NoiseMaker:
             )
         from einops import rearrange
         noise = rearrange(noise, "f b h w c -> b c f h w")
-        if self.animation_frames is None:
+        if self.frames is None:
             noise = noise[:, :, 0, :, :]
         return noise.to(self.device, dtype=self.dtype)
 
@@ -170,7 +173,7 @@ class NoiseMaker:
         """
         import torch
         from .crosshatch import CrossHatchPowerFractal
-        frames = 1 if self.animation_frames is None else self.animation_frames
+        frames = 1 if self.frames is None else self.frames
         shape = (
             frames,
             self.batch_size,
@@ -202,7 +205,7 @@ class NoiseMaker:
 
         from einops import rearrange # type: ignore[import-not-found, unused-ignore]
         noise = rearrange(noise, "f b h w c -> b c f h w")
-        if self.animation_frames is None:
+        if self.frames is None:
             noise = noise[:, :, 0, :, :]
         return noise.to(self.device, dtype=self.dtype)
 
@@ -224,7 +227,7 @@ class NoiseMaker:
         """
         import torch
         from .perlin import PerlinPowerFractal
-        frames = 1 if self.animation_frames is None else self.animation_frames
+        frames = 1 if self.frames is None else self.frames
         shape = (
             frames,
             self.channels,
@@ -257,7 +260,7 @@ class NoiseMaker:
 
         from einops import rearrange
         noise = rearrange(noise, "f c b h w -> b c f h w")
-        if self.animation_frames is None:
+        if self.frames is None:
             noise = noise[:, :, 0, :, :]
         return noise.to(self.device, dtype=self.dtype)
 
@@ -296,12 +299,53 @@ class NoiseMaker:
             method_kwargs["noise_type"] = method
         return method_kwargs
 
+def reschedule_noise(
+    noise: Tensor,
+    window_size: int,
+    window_stride: int,
+    generator: Optional[Generator] = None
+) -> Tensor:
+    """
+    Reschedules noise scross animation frames for more consistent diffusion-based animations
+    See https://arxiv.org/abs/2310.15169
+    """
+    import torch
+    _, _, frames, _, _ = noise.shape
+
+    for frame_index in range(window_size, frames, window_stride):
+        start_index = max(0, frame_index - window_size)
+        end_index = min(frames, start_index + window_stride)
+        window_length = end_index - start_index
+
+        if window_length == 0:
+            break
+
+        list_indices = list(range(start_index, end_index))
+        indices = torch.LongTensor(list_indices).to(noise.device)
+        shuffled_indices = indices[torch.randperm(window_length, generator=generator)]
+
+        current_start = frame_index
+        current_end = min(frames, current_start + window_length)
+
+        if current_end == current_start + window_length:
+            # Fits perfectly in window
+            noise[:, :, current_start:current_end] = noise[:, :, shuffled_indices]
+        else:
+            # Need to wrap around
+            prefix_length = current_end - current_start
+            shuffled_indices = shuffled_indices[:prefix_length]
+            noise[:, :, current_start:current_end] = noise[:, :, shuffled_indices]
+
+    return noise
+
 def make_noise(
     batch_size: int,
     channels: int,
     height: int,
     width: int,
-    animation_frames: Optional[int] = None,
+    frames: Optional[int] = None,
+    reschedule_window_size: Optional[int] = None,
+    reschedule_window_stride: Optional[int] = None,
     generator: Optional[Generator] = None,
     device: Optional[Device] = None,
     dtype: Optional[DType] = None,
@@ -316,13 +360,21 @@ def make_noise(
         channels=channels,
         height=height,
         width=width,
-        animation_frames=animation_frames,
+        frames=frames,
         generator=generator,
         device=device,
         dtype=dtype
     )
     make_noise_method = noise_maker.get_method_by_name(method)
-    return make_noise_method(
+    noise = make_noise_method(
         noise_maker,
         **noise_maker.get_method_kwargs(method, **kwargs)
     )
+    if frames and reschedule_window_size and reschedule_window_stride:
+        noise = reschedule_noise(
+            noise,
+            reschedule_window_size,
+            reschedule_window_stride,
+            generator=generator
+        )
+    return noise

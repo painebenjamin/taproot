@@ -45,6 +45,7 @@ AudioResultType = Union[
     Sequence[SingleAudioType],
     Sequence[Tuple[SingleAudioType, ...]],
 ]
+
 class MessageDict(TypedDict):
     text: str
     role: NotRequired[Literal["user", "assistant", "system"]]

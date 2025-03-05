@@ -94,6 +94,10 @@ class Video:
                 logger.warning(f"Rate {rate} exceeds maximum frame rate (50), clamping.")
                 rate = 50
             frames[0].save(path, loop=0, duration=1000.0/rate, save_all=True, append_images=frames[1:])
+            if not os.path.exists(path):
+                raise IOError(f"Nothing was written to {path}")
+            else:
+                logger.debug(f"Wrote {len(frames)} frames to {path}")
             return os.path.getsize(path)
         elif ext not in [".mp4", ".ogg", ".webm"]:
             raise IOError(f"Unknown file extension {ext}")
@@ -137,6 +141,9 @@ class Video:
 
                 if not os.path.exists(path):
                     raise IOError(f"Nothing was written to {path}")
+                else:
+                    logger.debug(f"Wrote {len(clip_frames)} frames to {path}")
+
                 if remove_audio_file and audio_file is not None:
                     try:
                         os.remove(audio_file)

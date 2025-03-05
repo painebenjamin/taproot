@@ -455,37 +455,37 @@ def get_step_iterator(
 
 def sliding_1d_windows(
     length: int,
-    tile_size: int,
-    tile_stride: int
+    window_size: int,
+    window_stride: int
 ) -> List[Tuple[int, int]]:
     """
     Gets windows over a length using a square tile.
 
     :param length: The length of the area.
-    :param tile_size: The size of the tile.
-    :param tile_stride: The stride of the tile.
+    :param window_size: The size of the tile.
+    :param window_stride: The stride of the tile.
     """
     coords: List[Tuple[int, int]] = []
-    for start in range(0, length - tile_size + 1, tile_stride):
-        coords.append((start, start + tile_size))
-    if (length - tile_size) % tile_stride != 0:
-        coords.append((length - tile_size, length))
+    for start in range(0, length - window_size + 1, window_stride):
+        coords.append((start, start + window_size))
+    if (length - window_size) % window_stride != 0:
+        coords.append((length - window_size, length))
     return coords
 
 def sliding_1d_window_count(
     length: int,
-    tile_size: int,
-    tile_stride: int
+    window_size: int,
+    window_stride: int
 ) -> int:
     """
     Calculate the number of tiles needed to cover a length.
 
     :param length: The length of the area.
-    :param tile_size: The size of the tile.
-    :param tile_stride: The stride of the tile.
+    :param window_size: The size of the tile.
+    :param window_stride: The stride of the tile.
     :return: The number of tiles needed to cover the area.
     """
-    return ceil((length - tile_size) / tile_stride + 1)
+    return ceil((length - window_size) / window_stride + 1)
 
 def sliding_2d_windows(
     height: int,

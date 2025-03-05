@@ -431,7 +431,7 @@ class PretrainedModelMixin:
             if quantizer is not None and not isinstance(quantizer, OptimumQuantoQuantizer):
                 dtype = quantizer.update_torch_dtype(dtype)
                 if use_keep_in_fp32_modules:
-                    keep_in_fp32_modules = load_target._keep_in_fp32_modules
+                    keep_in_fp32_modules = getattr(load_target, "_keep_in_fp32_modules", [])
                 else:
                     keep_in_fp32_modules = []
 
@@ -447,7 +447,7 @@ class PretrainedModelMixin:
                         keep_in_fp32_modules=keep_in_fp32_modules,
                     )
             else:
-                keep_in_fp32_modules = None
+                keep_in_fp32_modules = []
 
             logger.debug(f"Loading model from {model_file} into {type(load_target).__name__} with device {device} and dtype {dtype}")
 
@@ -662,7 +662,7 @@ class PretrainedModelMixin:
         device: Optional[torch.device]=None,
         dtype: Optional[torch.dtype]=None,
         quantizer: Optional[Union[HfQuantizer, DiffusersQuantizer]]=None,
-        keep_in_fp32_modules: Optional[List[str]]=None,
+        keep_in_fp32_modules: List[str]=[],
     ) -> List[str]:
         """
         Loads a checkpoint into a model, returning unexpected keys.
@@ -700,7 +700,7 @@ class PretrainedModelMixin:
             quantizer.preprocess_model( # type: ignore[union-attr]
                 model=model, # type: ignore[arg-type]
                 device_map="auto",
-                keep_in_fp32_modules=getattr(model, "_keep_in_fp32_modules", []),
+                keep_in_fp32_modules=keep_in_fp32_modules,
                 state_dict=state_dict,
             )
 

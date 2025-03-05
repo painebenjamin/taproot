@@ -1417,6 +1417,12 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         elif output_format == "int":
             # We convert to a numpy uint8 array
             result = to_bhwc_ndarray(result)
+        elif output_format in ["mp4", "gif"]:
+            return self.get_output_from_video_result(
+                [result],
+                output_format=output_format,
+                output_upload=output_upload,
+            )
         else:
             raise ValueError(f"Output type {output_format} not recognized.")
         if output_upload:

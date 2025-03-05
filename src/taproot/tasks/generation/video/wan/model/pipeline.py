@@ -3,7 +3,7 @@ import torch.amp as amp
 import inspect
 import numpy as np
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from .t5 import T5Encoder
 from .wan import WanModel
@@ -14,6 +14,7 @@ from diffusers import SchedulerMixin
 from transformers import T5Tokenizer # type: ignore[import-untyped]
 from contextlib import nullcontext
 
+from taproot.constants import *
 from taproot.util import (
     maybe_use_tqdm,
     empty_cache,
@@ -205,6 +206,9 @@ class WanPipeline:
         uncond: Optional[List[torch.Tensor]],
         window_size: Optional[int],
         window_stride: Optional[int],
+        tile_size: Optional[Union[int, Tuple[int, int]]],
+        tile_stride: Optional[Union[int, Tuple[int, int]]],
+        tile_mask_type: MULTIDIFFUSION_MASK_TYPE_LITERAL,
         guidance_scale: float,
         seq_len: int,
         do_classifier_free_guidance: bool,
@@ -358,8 +362,11 @@ class WanPipeline:
         num_inference_steps: int=50,
         window_size: Optional[int]=None,
         window_stride: Optional[int]=None,
-        loop: bool=False,
+        tile_size: Optional[Union[int, Tuple[int, int]]]=None,
+        tile_stride: Optional[Union[int, Tuple[int, int]]]=None,
+        tile_mask_type: MULTIDIFFUSION_MASK_TYPE_LITERAL=DEFAULT_MULTIDIFFUSION_MASK_TYPE,
         generator: Optional[torch.Generator]=None,
+        loop: bool=False,
         use_tqdm: bool=True,
         cpu_offload: bool=True,
     ) -> torch.Tensor:
@@ -397,7 +404,7 @@ class WanPipeline:
 
             with log_duration("encoding video"):
                 encoded_video = self.vae.encode(
-                    [video.permute(1, 0, 2, 3).to(dtype=self.dtype)],
+                    [video.permute(1, 0, 2, 3).to(self.device, dtype=self.dtype)],
                     device=self.device,
                 )[0]
 
@@ -463,6 +470,8 @@ class WanPipeline:
             frames=e_t,
             height=e_h,
             width=e_w,
+            reschedule_window_size=window_size,
+            reschedule_window_stride=window_stride,
             generator=generator,
             device=self.device,
             dtype=self.dtype,
@@ -503,6 +512,9 @@ class WanPipeline:
                     uncond=uncond,
                     window_size=window_size,
                     window_stride=window_stride,
+                    tile_size=tile_size,
+                    tile_stride=tile_stride,
+                    tile_mask_type=tile_mask_type,
                     guidance_scale=guidance_scale,
                     seq_len=seq_len,
                     loop=loop,
@@ -531,25 +543,32 @@ class WanPipeline:
                     self.vae.to(self.device)
 
             if loop:
-                # The beginning ~9 frames will always have a noticeable jump as the VAE warms up
-                # To make perfect loops, we re-add the beginning to the end of the video, then shift afterwards
+                # The beginning ~13 frames will always have a noticeable jump as the VAE warms up
+                # To make perfect loops, we re-add the beginning to the end of the video, then blend
+                # in the repeated frames with the original frames.
                 latents = [
-                    torch.cat([l, l[:, :3]], dim=1)
+                    torch.cat(
+                        [l, l[:, :4]],
+                        dim=1
+                    )
                     for l in latents
                 ]
 
             videos = self.vae.decode(
                 latents,
                 device=self.device,
-                loop=loop,
+                tiled=True,
             )
 
             if loop:
-                # Now strip (3 * 4 - 3) = 9 frames off the beginning to make the loop perfect
-                videos = [
-                    v[:, 9:]
-                    for v in videos
-                ]
+                for i in range(len(videos)):
+                    mask = torch.ones((13,), device=videos[i].device, dtype=videos[i].dtype)
+                    mask[-4:] = torch.linspace(1, 0, 4, device=videos[i].device, dtype=videos[i].dtype)
+                    mask = mask.view(1, -1, 1, 1)
+                    repeated = videos[i][:, -13:]
+                    original = videos[i][:, :13]
+                    videos[i][:, :13] = repeated * mask + original * (1 - mask)
+                    videos[i] = videos[i][:, :-13]
 
         if cpu_offload:
             with log_duration("offloading vae"):

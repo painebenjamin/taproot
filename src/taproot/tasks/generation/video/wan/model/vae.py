@@ -1,5 +1,6 @@
 # Adapted from https://github.com/Wan-Video/Wan2.1
-# Licensed under apache 2.0
+# Also adapted from https://github.com/kijai/ComfyUI-WanVideoWrapper/blob/main/wanvideo/wan_video_vae.py
+# Licensed under Apache 2.0
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import torch
 import torch.nn as nn
@@ -8,7 +9,8 @@ import torch.nn.functional as F
 from typing import Any, Optional, Union, List, Tuple, Sequence
 from typing_extensions import Literal
 
-from einops import rearrange
+from einops import rearrange, repeat
+from taproot.util import maybe_use_tqdm
 
 __all__ = ["WanVAE", "WanVideoVAE"]
 
@@ -753,6 +755,7 @@ class WanVAE(nn.Module):
         self,
         z: torch.Tensor,
         scale: Union[Tuple[torch.Tensor, torch.Tensor], Tuple[float, float]],
+        loop: bool=False
     ) -> torch.Tensor:
         """
         :param z: input tensor [B, C, T, H, W]
@@ -840,7 +843,8 @@ class WanVideoVAE(nn.Module):
             1.2196, 1.7708, 2.6052, 2.0743,
             3.2687, 2.1526, 2.8652, 1.5579,
             1.6382, 1.1253, 2.8251, 1.9160,
-        ]
+        ],
+        upsampling_factor: int=8
     ) -> None:
         """
         :param dim: input dimension
@@ -867,6 +871,7 @@ class WanVideoVAE(nn.Module):
         self.mean = torch.tensor(mean)
         self.std = torch.tensor(std)
         self.scale = (self.mean, 1.0 / self.std)
+        self.upsampling_factor = upsampling_factor
 
     def get_target_shape(
         self,
@@ -889,25 +894,277 @@ class WanVideoVAE(nn.Module):
             width // self.stride[2],
         )
 
-    def encode(self, videos: List[torch.Tensor]) -> List[torch.Tensor]:
+    def build_1d_mask(
+        self,
+        length: int,
+        left_bound: bool,
+        right_bound: bool,
+        border_width: int
+    ) -> torch.Tensor:
         """
-        :param videos: list of videos
-        :return: list of encoded videos
-        """
-        return [
-            self.model.encode(u.unsqueeze(0), self.scale).float().squeeze(0)
-            for u in videos
-        ]
+        Builds a 1D mask.
 
-    def decode(self, zs: List[torch.Tensor]) -> List[torch.Tensor]:
+        :param length: length
+        :param left_bound: left bound
+        :param right_bound: right bound
+        :param border_width: border width
+        :return: mask
         """
-        :param zs: list of z tensors
-        :return: list of decoded videos
+        x = torch.ones((length,))
+
+        if not left_bound:
+            x[:border_width] = (torch.arange(border_width) + 1) / border_width
+        if not right_bound:
+            x[-border_width:] = torch.flip((torch.arange(border_width) + 1) / border_width, dims=(0,))
+
+        return x
+
+    def build_mask(
+        self,
+        data: torch.Tensor,
+        is_bound: Tuple[bool, bool, bool, bool],
+        border_width: int
+    ) -> torch.Tensor:
         """
-        return [
-            self.model.decode(u.unsqueeze(0), self.scale)
-            .float()
-            .clamp_(-1, 1)
-            .squeeze(0)
-            for u in zs
-        ]
+        :param data: data tensor [B, C, T, H, W]
+        :param is_bound: bound toggle for each side
+        :param border_width: border width
+        :return: mask tensor [1, 1, 1, H, W]
+        """
+        _, _, _, H, W = data.shape
+        h = self.build_1d_mask(H, is_bound[0], is_bound[1], border_width[0])
+        w = self.build_1d_mask(W, is_bound[2], is_bound[3], border_width[1])
+
+        h = repeat(h, "H -> H W", H=H, W=W)
+        w = repeat(w, "W -> H W", H=H, W=W)
+
+        mask = torch.stack([h, w]).min(dim=0).values
+        mask = rearrange(mask, "H W -> 1 1 1 H W")
+        return mask
+
+    def tiled_decode(
+        self,
+        hidden_states: torch.Tensor,
+        device: torch.device,
+        tile_size: Tuple[int, int],
+        tile_stride: Tuple[int, int],
+        loop: bool,
+        use_tqdm: bool=True
+    ) -> torch.Tensor:
+        """
+        :param hidden_states: hidden states tensor [B, C, T, H, W]
+        :param device: device
+        :param tile_size: tile size
+        :param tile_stride: tile stride
+        :return: output tensor [B, C, T, H, W]
+        """
+        _, _, T, H, W = hidden_states.shape
+        size_h, size_w = tile_size
+        stride_h, stride_w = tile_stride
+
+        # Split tasks
+        tasks = []
+        for h in range(0, H, stride_h):
+            if h-stride_h >= 0 and h-stride_h+size_h >= H:
+                continue
+            for w in range(0, W, stride_w):
+                if w-stride_w >= 0 and w-stride_w+size_w >= W:
+                    continue
+                h_, w_ = h + size_h, w + size_w
+                tasks.append((h, h_, w, w_))
+
+        data_device = "cpu"
+        computation_device = device
+
+        out_T = T * 4 - 3
+        weight = torch.zeros((1, 1, out_T, H * self.upsampling_factor, W * self.upsampling_factor), dtype=hidden_states.dtype, device=data_device)
+        values = torch.zeros((1, 3, out_T, H * self.upsampling_factor, W * self.upsampling_factor), dtype=hidden_states.dtype, device=data_device)
+
+        for h, h_, w, w_ in maybe_use_tqdm(tasks, desc="VAE decoding", use_tqdm=use_tqdm):
+            hidden_states_batch = hidden_states[:, :, :, h:h_, w:w_].to(computation_device)
+            hidden_states_batch = self.model.decode(hidden_states_batch, self.scale, loop).to(data_device)
+
+            mask = self.build_mask(
+                hidden_states_batch,
+                is_bound=(h==0, h_>=H, w==0, w_>=W),
+                border_width=((size_h - stride_h) * self.upsampling_factor, (size_w - stride_w) * self.upsampling_factor)
+            ).to(dtype=hidden_states.dtype, device=data_device)
+
+            target_h = h * self.upsampling_factor
+            target_w = w * self.upsampling_factor
+            values[
+                :,
+                :,
+                :,
+                target_h:target_h + hidden_states_batch.shape[3],
+                target_w:target_w + hidden_states_batch.shape[4],
+            ] += hidden_states_batch * mask
+            weight[
+                :,
+                :,
+                :,
+                target_h: target_h + hidden_states_batch.shape[3],
+                target_w: target_w + hidden_states_batch.shape[4],
+            ] += mask
+        values = values / weight
+        values = values.float().clamp_(-1, 1)
+        return values
+
+    def tiled_encode(
+        self,
+        video: torch.Tensor,
+        device: torch.device,
+        tile_size: Tuple[int, int],
+        tile_stride: Tuple[int, int],
+        use_tqdm: bool=True
+    ) -> torch.Tensor:
+        """
+        :param video: video tensor [B, C, T, H, W]
+        :param device: device
+        :param tile_size: tile size
+        :param tile_stride: tile stride
+        :return: output tensor [B, C, T, H, W]
+        """
+        _, _, T, H, W = video.shape
+        size_h, size_w = tile_size
+        stride_h, stride_w = tile_stride
+
+        # Split tasks
+        tasks = []
+        for h in range(0, H, stride_h):
+            if (h-stride_h >= 0 and h-stride_h+size_h >= H):
+                continue
+            for w in range(0, W, stride_w):
+                if (w-stride_w >= 0 and w-stride_w+size_w >= W):
+                    continue
+                h_, w_ = h + size_h, w + size_w
+                tasks.append((h, h_, w, w_))
+
+        data_device = "cpu"
+        computation_device = device
+
+        out_T = (T + 3) // 4
+        weight = torch.zeros((1, 1, out_T, H // self.upsampling_factor, W // self.upsampling_factor), dtype=video.dtype, device=data_device)
+        values = torch.zeros((1, 16, out_T, H // self.upsampling_factor, W // self.upsampling_factor), dtype=video.dtype, device=data_device)
+
+        for h, h_, w, w_ in maybe_use_tqdm(tasks, desc="VAE encoding", use_tqdm=use_tqdm):
+            hidden_states_batch = video[:, :, :, h:h_, w:w_].to(computation_device)
+            hidden_states_batch = self.model.encode(hidden_states_batch, self.scale).to(data_device)
+
+            mask = self.build_mask(
+                hidden_states_batch,
+                is_bound=(h==0, h_>=H, w==0, w_>=W),
+                border_width=((size_h - stride_h) // self.upsampling_factor, (size_w - stride_w) // self.upsampling_factor)
+            ).to(dtype=video.dtype, device=data_device)
+
+            target_h = h // self.upsampling_factor
+            target_w = w // self.upsampling_factor
+            values[
+                :,
+                :,
+                :,
+                target_h:target_h + hidden_states_batch.shape[3],
+                target_w:target_w + hidden_states_batch.shape[4],
+            ] += hidden_states_batch * mask
+            weight[
+                :,
+                :,
+                :,
+                target_h: target_h + hidden_states_batch.shape[3],
+                target_w: target_w + hidden_states_batch.shape[4],
+            ] += mask
+        values = values / weight
+        return values
+
+    def single_encode(
+        self,
+        video: torch.Tensor,
+        device: torch.device
+    ) -> torch.Tensor:
+        """
+        :param video: video tensor [B, C, T, H, W]
+        :param device: device
+        :return: output tensor [B, C, T, H, W]
+        """
+        video = video.to(device)
+        x = self.model.encode(video, self.scale)
+        return x
+
+    def single_decode(
+        self,
+        hidden_states: torch.Tensor,
+        device: torch.device,
+        loop: bool
+    ) -> torch.Tensor:
+        """
+        :param hidden_states: hidden states tensor [B, C, T, H, W]
+        :param device: device
+        :return: output tensor [B, C, T, H, W]
+        """
+        hidden_states = hidden_states.to(device)
+        video = self.model.decode(hidden_states, self.scale, loop)
+        return video.float().clamp_(-1, 1)
+
+    @torch.no_grad()
+    def encode(
+        self,
+        videos: List[torch.Tensor],
+        device: torch.device,
+        tiled: bool=False,
+        tile_size: Tuple[int, int]=(34, 34),
+        tile_stride: Tuple[int, int]=(18, 16)
+    ) -> torch.Tensor:
+        """
+        :param videos: list of video tensors [C, T, H, W]
+        :param device: device
+        :param tiled: tiled encoding
+        :param tile_size: tile size
+        :param tile_stride: tile stride
+        :return: output tensor [B, C, T, H, W]
+        """
+        videos = [video.to("cpu") for video in videos]
+        hidden_states = []
+        for video in videos:
+            video = video.unsqueeze(0)
+            if tiled:
+                tile_size = (tile_size[0], tile_size[1])
+                tile_stride = (tile_stride[0], tile_stride[1])
+                hidden_state = self.tiled_encode(video, device, tile_size, tile_stride)
+            else:
+                hidden_state = self.single_encode(video, device)
+            hidden_state = hidden_state.squeeze(0)
+            hidden_states.append(hidden_state)
+
+        hidden_states = torch.stack(hidden_states)
+        return hidden_states
+
+    @torch.no_grad()
+    def decode(
+        self,
+        hidden_states: List[torch.Tensor],
+        device: torch.device,
+        tiled: bool=False,
+        tile_size: Tuple[int, int]=(34, 34),
+        tile_stride: Tuple[int, int]=(18, 16),
+        loop: bool=False
+    ) -> List[torch.Tensor]:
+        """
+        :param hidden_states: list of hidden states tensors [B, C, T, H, W]
+        :param device: device
+        :param tiled: tiled decoding
+        :param tile_size: tile size
+        :param tile_stride: tile stride
+        :return: list of output tensors [B, C, T, H, W]
+        """
+        hidden_states = [hidden_state.to("cpu") for hidden_state in hidden_states]
+        videos = []
+        for hidden_state in hidden_states:
+            hidden_state = hidden_state.unsqueeze(0)
+            if tiled:
+                video = self.tiled_decode(hidden_state, device, tile_size, tile_stride, loop)
+            else:
+                video = self.single_decode(hidden_state, device, loop)
+            video = video.squeeze(0)
+            videos.append(video)
+
+        return videos

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from taproot.constants import *
-from taproot.util import get_seed, get_diffusers_scheduler_by_name
+from taproot.util import get_seed, get_diffusers_scheduler_by_name, to_bchw_tensor
 from taproot.tasks.base import Task
 
 from .pretrained import (
@@ -50,11 +50,6 @@ class WanVideoGeneration1B(Task):
         "transformer": PretrainedWanT2V1BTransformer,
     }
     offload_models = ["vae", "text_encoder", "transformer"]
-    """
-    pretrained_models = {
-        "scheduler": PretrainedWanScheduler,
-    }
-    """
 
     """Authorship Metadata"""
     author = "Wan Foundation Model Team"
@@ -74,22 +69,6 @@ class WanVideoGeneration1B(Task):
     license_commercial = True # Can use for commercial purposes up to 100 million users/month
     license_hosting = True # Can host the model as a service
     license_copy_left = False # Derived works do not have to be open source
-
-    def load(self) -> None:
-        """
-        TODO: remove
-        """
-        return super().load()
-        import sys
-        sys.path.insert(0, "/home/benjamin/Wan2.1")
-        from wan.text2video import WanT2V
-        from wan.configs import t2v_1_3B
-        self.model = WanT2V(
-            config=t2v_1_3B,
-            checkpoint_dir="/home/benjamin/Wan2.1/Wan2.1-T2V-1.3B"
-        )
-        self.model.model.to("cpu")
-        self.model.text_encoder.to("cpu")
 
     def get_video_tensor_from_result(
         self,
@@ -118,6 +97,8 @@ class WanVideoGeneration1B(Task):
         height: int=480,
         width: int=832,
         num_frames: int=81,
+        video: Optional[ImageType]=None,
+        strength: float=0.6,
         num_inference_steps: int=50,
         window_size: Optional[int]=None,
         window_stride: Optional[int]=None,
@@ -128,12 +109,14 @@ class WanVideoGeneration1B(Task):
         scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL]=None,
         output_format: VIDEO_OUTPUT_FORMAT_LITERAL="mp4",
         output_upload: bool=False,
+        loop: bool=False,
     ) -> ImageResultType:
         """
         Generate a video from a text prompt.
         """
         import torch
         from .model import WanPipeline
+
         pipeline = WanPipeline(
             text_encoder=self.pretrained.text_encoder,
             tokenizer=self.pretrained.tokenizer,
@@ -147,6 +130,9 @@ class WanVideoGeneration1B(Task):
                 name=scheduler,
                 config=self.pretrained.scheduler.config
             )
+        if video is not None:
+            video = to_bchw_tensor(video, num_channels=3)
+            video = video * 2 - 1 # Scale [0, 1] to [-1, 1]
 
         seed = get_seed(seed)
         generator = torch.Generator()
@@ -155,12 +141,15 @@ class WanVideoGeneration1B(Task):
             prompt=prompt,
             height=height,
             width=width,
+            video=video,
+            strength=strength,
             num_frames=num_frames,
             num_inference_steps=num_inference_steps,
             guidance_scale=guidance_scale,
             guidance_end=guidance_end,
             window_size=window_size,
             window_stride=window_stride,
+            loop=loop,
             generator=generator,
         )
         results = self.get_video_tensor_from_result(results)

@@ -120,6 +120,7 @@ class BasicSuperResolution(Task):
         :return: The upscaled image(s).
         """
         input_images = to_pil_array(image)
+
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             output_futures = []
             for input_image in input_images:

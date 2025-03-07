@@ -21,7 +21,7 @@ from taproot.util import (
     logger,
     make_noise,
     log_duration,
-    sliding_1d_windows,
+    sliding_3d_windows,
 )
 
 class WanPipeline:
@@ -208,7 +208,6 @@ class WanPipeline:
         window_stride: Optional[int],
         tile_size: Optional[Union[int, Tuple[int, int]]],
         tile_stride: Optional[Union[int, Tuple[int, int]]],
-        tile_mask_type: MULTIDIFFUSION_MASK_TYPE_LITERAL,
         guidance_scale: float,
         seq_len: int,
         do_classifier_free_guidance: bool,
@@ -217,43 +216,84 @@ class WanPipeline:
         """
         Predict noise at a given timestep
         """
-        if window_size and window_stride:
+        use_multidiffusion = (window_size and window_stride) or (tile_size and tile_stride)
+
+        if use_multidiffusion:
+            _, num_frames, height, width = latents[0].shape
+            if not window_size:
+                window_size = num_frames
+            if not window_stride:
+                window_stride = window_size // 2
+            if not tile_size:
+                tile_size = (width, height)
+            elif not isinstance(tile_size, tuple):
+                tile_size = (tile_size, tile_size)
+            if not tile_stride:
+                tile_stride = (tile_size[0] // 2, tile_size[1] // 2)
+            elif not isinstance(tile_stride, tuple):
+                tile_stride = (tile_stride, tile_stride)
+
             window_overlap = window_size - window_stride
-            num_frames = latents[0].shape[1]
             window_size = min(window_size, num_frames)
+            tile_stride_width, tile_stride_height = tile_stride
+
             if loop:
-                windows = sliding_1d_windows(
-                    num_frames * 2,
-                    window_size,
-                    window_stride
+                windows = sliding_3d_windows(
+                    frames=num_frames * 2,
+                    height=height,
+                    width=width,
+                    frame_window_size=window_size,
+                    frame_window_stride=window_stride,
+                    tile_size=tile_size,
+                    tile_stride=tile_stride,
                 )
                 windows = [
-                    (start % num_frames, end % num_frames)
-                    for start, end in windows
+                    (
+                        start % num_frames,
+                        end % num_frames,
+                        top,
+                        bottom,
+                        left,
+                        right
+                    )
+                    for start, end, top, bottom, left, right in windows
                     if start < num_frames
                 ]
             else:
-                windows = sliding_1d_windows(
-                    num_frames,
-                    window_size,
-                    window_stride
+                windows = sliding_3d_windows(
+                    frames=num_frames,
+                    height=height,
+                    width=width,
+                    frame_window_size=window_size,
+                    frame_window_stride=window_stride,
+                    tile_size=tile_size,
+                    tile_stride=tile_stride,
                 )
 
             num_windows = len(windows)
-
             noise_pred_count = torch.zeros_like(latents[0])
             noise_pred_total = torch.zeros_like(latents[0])
 
-            for i, (start, end) in enumerate(windows):
+            for i, (start, end, top, bottom, left, right) in maybe_use_tqdm(
+                enumerate(windows),
+                desc="Diffusing windows",
+                total=num_windows
+            ):
                 is_looped = start >= end
 
                 if is_looped:
                     latent_model_input = [
-                        torch.cat([l[:, start:], l[:, :end]], dim=1)
+                        torch.cat([
+                            l[:, start:, top:bottom, left:right],
+                            l[:, :end, top:bottom, left:right]
+                        ], dim=1)
                         for l in latents
                     ]
                 else:
-                    latent_model_input = [l[:, start:end] for l in latents]
+                    latent_model_input = [
+                        l[:, start:end, top:bottom, left:right]
+                        for l in latents
+                    ]
 
                 if do_classifier_free_guidance and uncond is not None:
                     if self.stack_conditions:
@@ -287,10 +327,31 @@ class WanPipeline:
 
                 window_mask = torch.ones_like(noise_pred)
 
-                if loop or i > 0:
+                if loop or start > 0:
                     window_mask[:, :window_overlap] = torch.linspace(0, 1, window_overlap, device=noise_pred.device).view(1, -1, 1, 1)
-                if loop or i < num_windows - 1:
+                if loop or end < num_frames:
                     window_mask[:, -window_overlap:] = torch.linspace(1, 0, window_overlap, device=noise_pred.device).view(1, -1, 1, 1)
+
+                if top != 0:
+                    window_mask[:, :, :tile_stride_height] = torch.min(
+                        window_mask[:, :, :tile_stride_height],
+                        torch.linspace(0, 1, tile_stride_height, device=noise_pred.device).view(1, 1, -1, 1)
+                    )
+                if bottom != height:
+                    window_mask[:, :, -tile_stride_height:] = torch.min(
+                        window_mask[:, :, -tile_stride_height:],
+                        torch.linspace(1, 0, tile_stride_height, device=noise_pred.device).view(1, 1, -1, 1)
+                    )
+                if left != 0:
+                    window_mask[:, :, :, :tile_stride_width] = torch.min(
+                        window_mask[:, :, :, :tile_stride_width],
+                        torch.linspace(0, 1, tile_stride_width, device=noise_pred.device).view(1, 1, 1, -1)
+                    )
+                if right != width:
+                    window_mask[:, :, :, -tile_stride_width:] = torch.min(
+                        window_mask[:, :, :, -tile_stride_width:],
+                        torch.linspace(1, 0, tile_stride_width, device=noise_pred.device).view(1, 1, 1, -1)
+                    )
 
                 noise_pred = noise_pred * window_mask
 
@@ -299,13 +360,13 @@ class WanPipeline:
                     end_t = num_frames
                     initial_t = end_t - start_t
 
-                    noise_pred_total[:, start_t:end_t] += noise_pred[:, :initial_t]
-                    noise_pred_count[:, start_t:end_t] += window_mask[:, :initial_t]
-                    noise_pred_total[:, :end] += noise_pred[:, initial_t:]
-                    noise_pred_count[:, :end] += window_mask[:, initial_t:]
+                    noise_pred_total[:, start_t:end_t, top:bottom, left:right] += noise_pred[:, :initial_t]
+                    noise_pred_count[:, start_t:end_t, top:bottom, left:right] += window_mask[:, :initial_t]
+                    noise_pred_total[:, :end, top:bottom, left:right] += noise_pred[:, initial_t:]
+                    noise_pred_count[:, :end, top:bottom, left:right] += window_mask[:, initial_t:]
                 else:
-                    noise_pred_total[:, start:end] += noise_pred
-                    noise_pred_count[:, start:end] += window_mask
+                    noise_pred_total[:, start:end, top:bottom, left:right] += noise_pred
+                    noise_pred_count[:, start:end, top:bottom, left:right] += window_mask
 
             noise_pred = torch.where(
                 noise_pred_count > 0,
@@ -362,13 +423,13 @@ class WanPipeline:
         num_inference_steps: int=50,
         window_size: Optional[int]=None,
         window_stride: Optional[int]=None,
-        tile_size: Optional[Union[int, Tuple[int, int]]]=None,
-        tile_stride: Optional[Union[int, Tuple[int, int]]]=None,
-        tile_mask_type: MULTIDIFFUSION_MASK_TYPE_LITERAL=DEFAULT_MULTIDIFFUSION_MASK_TYPE,
+        tile_size: Optional[Union[str, int, Tuple[int, int]]]=None,
+        tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         generator: Optional[torch.Generator]=None,
         loop: bool=False,
         use_tqdm: bool=True,
         cpu_offload: bool=True,
+        flash_fix: bool=True,
     ) -> torch.Tensor:
         """
         Generate video frames from the prompt.
@@ -402,11 +463,21 @@ class WanPipeline:
                 with log_duration("onloading vae"):
                     self.vae.to(self.device)
 
+            if loop and flash_fix:
+                # Prepend first 15 frames in reverse to avoid VAE warmup flash
+                video = torch.cat([
+                    torch.flip(video[:15], [0]),
+                    video
+                ], dim=0)
+
             with log_duration("encoding video"):
                 encoded_video = self.vae.encode(
                     [video.permute(1, 0, 2, 3).to(self.device, dtype=self.dtype)],
                     device=self.device,
                 )[0]
+
+            if loop and flash_fix:
+                encoded_video = encoded_video[:, 4:]
 
             if cpu_offload:
                 with log_duration("offloading vae"):
@@ -429,6 +500,35 @@ class WanPipeline:
 
         if guidance_end is None:
             guidance_end = 1.0
+
+        # Adjust windows based on latent spatiotemporal compression
+        temporal_comp, spatial_comp, _ = self.vae.stride
+        if window_size is not None:
+            window_size = int(window_size) // temporal_comp
+        if window_stride is not None:
+            window_stride = int(window_stride) // temporal_comp
+        if tile_size is not None:
+            if isinstance(tile_size, tuple):
+                tile_size = (tile_size[0] // spatial_comp, tile_size[1] // spatial_comp)
+            elif isinstance(tile_size, str):
+                if ":" in tile_size:
+                    tile_size = tuple(map(int, tile_size.split(":")))
+                    tile_size = (tile_size[0] // spatial_comp, tile_size[1] // spatial_comp)
+                else:
+                    tile_size = int(tile_size) // spatial_comp
+            else:
+                tile_size = tile_size // spatial_comp
+        if tile_stride is not None:
+            if isinstance(tile_stride, tuple):
+                tile_stride = (tile_stride[0] // spatial_comp, tile_stride[1] // spatial_comp)
+            elif isinstance(tile_stride, str):
+                if ":" in tile_stride:
+                    tile_stride = tuple(map(int, tile_stride.split(":")))
+                    tile_stride = (tile_stride[0] // spatial_comp, tile_stride[1] // spatial_comp)
+                else:
+                    tile_stride = int(tile_stride) // spatial_comp
+            else:
+                tile_stride = tile_stride // spatial_comp
 
         do_classifier_free_guidance = guidance_scale > 1.0
 
@@ -458,6 +558,8 @@ class WanPipeline:
         if do_classifier_free_guidance:
             with log_duration("encoding negative prompt"):
                 uncond = [self.encode_prompt(negative_prompt or self.default_negative_prompt).to(self.dtype)]
+        else:
+            uncond = None
 
         if cpu_offload:
             with log_duration("offloading text encoder"):
@@ -501,6 +603,7 @@ class WanPipeline:
 
             for i, t in maybe_use_tqdm(
                 enumerate(timesteps),
+                desc="Diffusing",
                 use_tqdm=use_tqdm,
                 total=num_inference_steps
             ):
@@ -514,7 +617,6 @@ class WanPipeline:
                     window_stride=window_stride,
                     tile_size=tile_size,
                     tile_stride=tile_stride,
-                    tile_mask_type=tile_mask_type,
                     guidance_scale=guidance_scale,
                     seq_len=seq_len,
                     loop=loop,
@@ -542,7 +644,7 @@ class WanPipeline:
                 with log_duration("onloading vae"):
                     self.vae.to(self.device)
 
-            if loop:
+            if loop and flash_fix:
                 # The beginning ~13 frames will always have a noticeable jump as the VAE warms up
                 # To make perfect loops, we re-add the beginning to the end of the video, then blend
                 # in the repeated frames with the original frames.
@@ -560,7 +662,7 @@ class WanPipeline:
                 tiled=True,
             )
 
-            if loop:
+            if loop and flash_fix:
                 for i in range(len(videos)):
                     mask = torch.ones((13,), device=videos[i].device, dtype=videos[i].dtype)
                     mask[-4:] = torch.linspace(1, 0, 4, device=videos[i].device, dtype=videos[i].dtype)

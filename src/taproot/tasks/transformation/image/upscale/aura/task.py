@@ -9,6 +9,7 @@ from taproot.util import (
     floor_power,
     to_pil_array,
     is_multi_image,
+    maybe_use_tqdm,
     seed_all,
     SeedType
 )
@@ -180,7 +181,7 @@ class AuraSuperResolution(Task):
         )
         results = [
             self.upsample(i, amount=amount)
-            for i in images
+            for i in maybe_use_tqdm(images, desc="Upscaling images", total=len(images))
         ]
         return self.get_output_from_image_result(
             results,

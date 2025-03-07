@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional, Type, Union, Dict, List, Tuple, Sequence, TYPE_CHECKING
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+    TYPE_CHECKING
+)
 from omegaconf import OmegaConf
 from contextlib import nullcontext
+from taproot.constants import *
 
 from .quantization_util import OptimumQuantoQuantizer
 
@@ -614,7 +625,7 @@ class PretrainedModelMixin:
     @classmethod
     def instantiate_and_load_from_url_to_dir(
         cls,
-        model_dir: str,
+        model_dir: str=DEFAULT_MODEL_DIR,
         init_weights: bool=False,
         device: Optional[Union[str, torch.device, Sequence[Union[str, torch.device]]]]=None,
         dtype: Optional[Union[str, torch.dtype]]=None,

@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 __all__ = [
     "WanVideoGeneration1B",
     "WanVideoGeneration14B",
+    "WanVideoGeneration14BQ80",
+    "WanVideoGeneration14BQ6K",
+    "WanVideoGeneration14BQ5KM",
+    "WanVideoGeneration14BQ4KM",
+    "WanVideoGeneration14BQ3KM",
 ]
 
 class WanVideoGeneration1B(Task):
@@ -70,6 +75,26 @@ class WanVideoGeneration1B(Task):
     license_hosting = True # Can host the model as a service
     license_copy_left = False # Derived works do not have to be open source
 
+    @classmethod
+    def required_packages(cls) -> Dict[str, Optional[str]]:
+        """
+        Required packages.
+        """
+        return {
+            "pil": PILLOW_VERSION_SPEC,
+            "torch": TORCH_VERSION_SPEC,
+            "numpy": NUMPY_VERSION_SPEC,
+            "diffusers": DIFFUSERS_VERSION_SPEC,
+            "torchvision": TORCHVISION_VERSION_SPEC,
+            "transformers": TRANSFORMERS_VERSION_SPEC,
+            "safetensors": SAFETENSORS_VERSION_SPEC,
+            "accelerate": ACCELERATE_VERSION_SPEC,
+            "sklearn": SKLEARN_VERSION_SPEC,
+            "sentencepiece": SENTENCEPIECE_VERSION_SPEC,
+            "compel": COMPEL_VERSION_SPEC,
+            "peft": PEFT_VERSION_SPEC,
+        }
+
     def get_video_tensor_from_result(
         self,
         result: torch.Tensor
@@ -102,6 +127,8 @@ class WanVideoGeneration1B(Task):
         num_inference_steps: int=50,
         window_size: Optional[int]=None,
         window_stride: Optional[int]=None,
+        tile_size: Optional[Union[str, int, Tuple[int, int]]]=None,
+        tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         guidance_scale: float=5.0,
         guidance_end: Optional[float]=None,
         frame_rate: int=16,
@@ -125,6 +152,7 @@ class WanVideoGeneration1B(Task):
             scheduler=self.pretrained.scheduler,
             device=self.device,
         )
+
         if scheduler is not None:
             pipeline.scheduler = get_diffusers_scheduler_by_name(
                 name=scheduler,
@@ -132,6 +160,10 @@ class WanVideoGeneration1B(Task):
             )
         if video is not None:
             video = to_bchw_tensor(video, num_channels=3)
+            if num_frames < 0:
+                num_frames = video.shape[0]
+            else:
+                video = video[:num_frames]
             video = video * 2 - 1 # Scale [0, 1] to [-1, 1]
 
         seed = get_seed(seed)
@@ -149,6 +181,8 @@ class WanVideoGeneration1B(Task):
             guidance_end=guidance_end,
             window_size=window_size,
             window_stride=window_stride,
+            tile_size=tile_size,
+            tile_stride=tile_stride,
             loop=loop,
             generator=generator,
         )

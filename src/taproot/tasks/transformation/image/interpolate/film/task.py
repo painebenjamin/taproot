@@ -23,7 +23,7 @@ class FILMInterpolation(Task):
     task = "image-interpolation"
     model = "film"
     default = True
-    display_name = "Frame Interpolation for Large Motion (FiLM) Image Interpolation"
+    display_name = "FiLM Image Interpolation"
     pretrained_models = {"model": FILMNetModel}
     static_memory_gb = 0.04862 # 48.62 MB
     static_gpu_memory_gb = 0.07 # 70 MB

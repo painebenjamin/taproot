@@ -102,7 +102,10 @@ class RIFEImageInterpolation(Task):
             for t in timesteps
         ]
 
-        return torch.cat([start] + middle + [end], dim=0)
+        results = torch.cat([start] + middle + [end], dim=0)
+
+        # Remove padding
+        return results[:, :, :h, :w]
 
     """Overrides"""
 

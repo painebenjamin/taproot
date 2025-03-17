@@ -58,7 +58,7 @@ class PretrainedWanT2V14BTransformer(PretrainedWanTransformer):
     """
     Pretrained Wan text-to-video 14B model.
     """
-    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-wan-v2-1-transformer-14b.bf16.safetensors"
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-wan-v2-1-transformer-14b.fp16.safetensors"
 
     @classmethod
     def get_default_config(cls) -> Optional[Dict[str, Any]]:

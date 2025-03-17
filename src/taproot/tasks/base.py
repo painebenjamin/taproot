@@ -1678,7 +1678,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         Get the offload tasks.
         """
-        if not self.enable_task_offload or not self.enable_sequential_offload:
+        if not self.enable_model_offload or not self.enable_sequential_offload:
             return False
         return False if self.offload_tasks is None else self.offload_tasks
 

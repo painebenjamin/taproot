@@ -189,6 +189,7 @@ class WanVideoGeneration1B(Task):
             tile_horizontal=tile_horizontal,
             tile_vertical=tile_vertical,
             generator=generator,
+            cpu_offload=self.enable_model_offload,
         )
         results = self.get_video_tensor_from_result(results)
         return self.get_output_from_video_result(

@@ -1417,7 +1417,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         elif output_format == "int":
             # We convert to a numpy uint8 array
             result = to_bhwc_ndarray(result)
-        elif output_format in ["mp4", "gif"]:
+        elif output_format in ["mp4", "gif", "webp"]:
             return self.get_output_from_video_result(
                 [result],
                 output_format=output_format,
@@ -1474,28 +1474,28 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
                 result = result_uris
             else:
                 result = result_bytes # type: ignore[assignment]
-        elif output_format == "gif":
-            gif_result_uris: List[str] = [tempfile.mktemp(suffix=".gif") for _ in range(num_videos)]
-            gif_result_bytes: List[EncodedImageProxy] = []
+        elif output_format in ["gif", "webp"]:
+            pil_video_result_uris: List[str] = [tempfile.mktemp(suffix=f".{output_format}") for _ in range(num_videos)]
+            pil_video_result_bytes: List[EncodedImageProxy] = []
             for i in range(num_videos):
                 Video(
                     frames=to_pil_array(result[i]), # type: ignore[index]
                     frame_rate=frame_rate,
-                ).save(gif_result_uris[i])
+                ).save(pil_video_result_uris[i])
 
                 if not output_upload:
-                    with open(gif_result_uris[i], "rb") as f:
-                        gif_result_bytes.append(
+                    with open(pil_video_result_uris[i], "rb") as f:
+                        pil_video_result_bytes.append(
                             EncodedImageProxy(
                                 data=f.read(),
-                                format="gif"
+                                format=output_format,
                             )
                         )
 
             if output_upload:
-                result = gif_result_uris
+                result = pil_video_result_uris
             else:
-                result = gif_result_bytes
+                result = pil_video_result_bytes
         elif output_format == "png":
             # We use a simple PIL conversion here
             result = [ # type: ignore[assignment]
@@ -1603,9 +1603,9 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         Saves one or more audios to the configured directory.
         """
         video_filenames: List[str] = []
-        if output_format in ["mp4", "gif"]:
+        if output_format in ["mp4", "gif", "webp"]:
             for video in videos: # type: ignore[union-attr]
-                assert isinstance(video, str), "Audio output should have been saved to a temporary file."
+                assert isinstance(video, str), "Video output should have been saved to a temporary file."
                 video_filename = f"{generate_id()}.{output_format}"
                 video_filenames.append(video_filename)
                 output_file = os.path.join(self.save_dir, video_filename)

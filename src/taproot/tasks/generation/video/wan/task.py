@@ -127,6 +127,8 @@ class WanVideoGeneration1B(Task):
         num_inference_steps: int=50,
         window_size: Optional[int]=None,
         window_stride: Optional[int]=None,
+        tile_horizontal: bool=False,
+        tile_vertical: bool=False,
         tile_size: Optional[Union[str, int, Tuple[int, int]]]=None,
         tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         guidance_scale: float=5.0,
@@ -184,6 +186,8 @@ class WanVideoGeneration1B(Task):
             tile_size=tile_size,
             tile_stride=tile_stride,
             loop=loop,
+            tile_horizontal=tile_horizontal,
+            tile_vertical=tile_vertical,
             generator=generator,
         )
         results = self.get_video_tensor_from_result(results)

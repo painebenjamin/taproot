@@ -212,6 +212,8 @@ class WanPipeline:
         seq_len: int,
         do_classifier_free_guidance: bool,
         loop: bool,
+        tile_horizontal: bool,
+        tile_vertical: bool,
     ) -> torch.Tensor:
         """
         Predict noise at a given timestep
@@ -237,38 +239,27 @@ class WanPipeline:
             window_size = min(window_size, num_frames)
             tile_stride_width, tile_stride_height = tile_stride
 
-            if loop:
-                windows = sliding_3d_windows(
-                    frames=num_frames * 2,
-                    height=height,
-                    width=width,
-                    frame_window_size=window_size,
-                    frame_window_stride=window_stride,
-                    tile_size=tile_size,
-                    tile_stride=tile_stride,
+            windows = sliding_3d_windows(
+                frames=num_frames * (1 + loop),
+                height=height * (1 + tile_vertical),
+                width=width * (1 + tile_horizontal),
+                frame_window_size=window_size,
+                frame_window_stride=window_stride,
+                tile_size=tile_size,
+                tile_stride=tile_stride,
+            )
+            windows = [
+                (
+                    start % num_frames,
+                    end if end <= num_frames else end % num_frames,
+                    top % height,
+                    bottom if bottom <= height else bottom % height,
+                    left % width,
+                    right if right <= width else right % width,
                 )
-                windows = [
-                    (
-                        start % num_frames,
-                        end % num_frames,
-                        top,
-                        bottom,
-                        left,
-                        right
-                    )
-                    for start, end, top, bottom, left, right in windows
-                    if start < num_frames
-                ]
-            else:
-                windows = sliding_3d_windows(
-                    frames=num_frames,
-                    height=height,
-                    width=width,
-                    frame_window_size=window_size,
-                    frame_window_stride=window_stride,
-                    tile_size=tile_size,
-                    tile_stride=tile_stride,
-                )
+                for start, end, top, bottom, left, right in windows
+                if start < num_frames and left < width and top < height
+            ]
 
             num_windows = len(windows)
             noise_pred_count = torch.zeros_like(latents[0])
@@ -280,16 +271,129 @@ class WanPipeline:
                 total=num_windows
             ):
                 is_looped = start >= end
+                is_wrap_horizontal = left >= right
+                is_wrap_vertical = top >= bottom
 
                 if is_looped:
+                    if is_wrap_horizontal:
+                        if is_wrap_vertical:
+                            # Horizontally wrapped
+                            # Vertically wrapped
+                            # Temporally wrapped
+                            latent_model_input = [
+                                torch.cat([
+                                    torch.cat([
+                                        torch.cat([
+                                            l[:, start:, top:, left:],
+                                            l[:, :end, top:, left:]
+                                        ], dim=1),
+                                        torch.cat([
+                                            l[:, start:, :bottom, left:],
+                                            l[:, :end, :bottom, left:]
+                                        ], dim=1)
+                                    ], dim=2),
+                                    torch.cat([
+                                        torch.cat([
+                                            l[:, start:, top:, :right],
+                                            l[:, :end, top:, :right]
+                                        ], dim=1),
+                                        torch.cat([
+                                            l[:, start:, :bottom, :right],
+                                            l[:, :end, :bottom, :right]
+                                        ], dim=1)
+                                    ], dim=2)
+                                ], dim=3)
+                                for l in latents
+                            ]
+                        else:
+                            # NOT vertically wrapped
+                            # Horizontally wrapped
+                            # Temporally wrapped
+                            latent_model_input = [
+                                torch.cat([
+                                    torch.cat([
+                                        l[:, start:, top:bottom, left:],
+                                        l[:, :end, top:bottom, left:]
+                                    ], dim=1),
+                                    torch.cat([
+                                        l[:, start:, top:bottom, :right],
+                                        l[:, :end, top:bottom, :right]
+                                    ], dim=1),
+                                ], dim=3)
+                                for l in latents
+                            ]
+                    elif is_wrap_vertical:
+                        # NOT horizontally wrapped
+                        # Vertically wrapped
+                        # Temporally wrapped
+                        latent_model_input = [
+                            torch.cat([
+                                torch.cat([
+                                    l[:, start:, top:, left:right],
+                                    l[:, :end, top:, left:right]
+                                ], dim=1),
+                                torch.cat([
+                                    l[:, start:, :bottom, left:right],
+                                    l[:, :end, :bottom, left:right]
+                                ], dim=1),
+                            ], dim=2)
+                            for l in latents
+                        ]
+                    else:
+                        # NOT horizontally wrapped
+                        # NOT vertically wrapped
+                        # Temporally wrapped
+                        latent_model_input = [
+                            torch.cat([
+                                l[:, start:, top:bottom, left:right],
+                                l[:, :end, top:bottom, left:right]
+                            ], dim=1)
+                            for l in latents
+                        ]
+                elif is_wrap_horizontal:
+                    if is_wrap_vertical:
+                        # Horizontally wrapped
+                        # Vertically wrapped
+                        # NOT temporally wrapped
+                        latent_model_input = [
+                            torch.cat([
+                                torch.cat([
+                                    l[:, start:end, top:, left:],
+                                    l[:, start:end, :bottom, left:]
+                                ], dim=2),
+                                torch.cat([
+                                    l[:, start:end, top:, :right],
+                                    l[:, start:end, :bottom, :right]
+                                ], dim=2)
+                            ], dim=3)
+                            for l in latents
+                        ]
+                    else:
+                        # NOT vertically wrapped
+                        # Horizontally wrapped
+                        # NOT temporally wrapped
+                        latent_model_input = [
+                            torch.cat([
+                                l[:, start:end, top:bottom, left:],
+                                l[:, start:end, top:bottom, :right]
+                            ], dim=3)
+                            for l in latents
+                        ]
+                elif is_wrap_vertical:
+                    # NOT horizontally wrapped
+                    # Vertically wrapped
+                    # NOT temporally wrapped
                     latent_model_input = [
                         torch.cat([
-                            l[:, start:, top:bottom, left:right],
-                            l[:, :end, top:bottom, left:right]
-                        ], dim=1)
+                            l[:, start:end, top:, left:right],
+                            l[:, start:end, :bottom, left:right]
+                        ], dim=2)
                         for l in latents
                     ]
                 else:
+                    # NOT horizontally wrapped
+                    # NOT vertically wrapped
+                    # NOT temporally wrapped
                     latent_model_input = [
                         l[:, start:end, top:bottom, left:right]
                         for l in latents
@@ -331,23 +435,22 @@ class WanPipeline:
                     window_mask[:, :window_overlap] = torch.linspace(0, 1, window_overlap, device=noise_pred.device).view(1, -1, 1, 1)
                 if loop or end < num_frames:
                     window_mask[:, -window_overlap:] = torch.linspace(1, 0, window_overlap, device=noise_pred.device).view(1, -1, 1, 1)
-
-                if top != 0:
+                if tile_vertical or top > 0:
                     window_mask[:, :, :tile_stride_height] = torch.min(
                         window_mask[:, :, :tile_stride_height],
                         torch.linspace(0, 1, tile_stride_height, device=noise_pred.device).view(1, 1, -1, 1)
                     )
-                if bottom != height:
+                if tile_vertical or bottom < height:
                     window_mask[:, :, -tile_stride_height:] = torch.min(
                         window_mask[:, :, -tile_stride_height:],
                         torch.linspace(1, 0, tile_stride_height, device=noise_pred.device).view(1, 1, -1, 1)
                     )
-                if left != 0:
+                if tile_horizontal or left > 0:
                     window_mask[:, :, :, :tile_stride_width] = torch.min(
                         window_mask[:, :, :, :tile_stride_width],
                         torch.linspace(0, 1, tile_stride_width, device=noise_pred.device).view(1, 1, 1, -1)
                     )
-                if right != width:
+                if tile_horizontal or right < width:
                     window_mask[:, :, :, -tile_stride_width:] = torch.min(
                         window_mask[:, :, :, -tile_stride_width:],
                         torch.linspace(1, 0, tile_stride_width, device=noise_pred.device).view(1, 1, 1, -1)
@@ -359,12 +462,122 @@ class WanPipeline:
                     start_t = start
                     end_t = num_frames
                     initial_t = end_t - start_t
+                    if is_wrap_horizontal:
+                        start_x = left
+                        end_x = width
+                        initial_x = end_x - start_x
+                        if is_wrap_vertical:
+                            # Horizontally wrapped
+                            # Vertically wrapped
+                            # Temporally wrapped
+                            start_y = top
+                            end_y = height
+                            initial_y = end_y - start_y
 
-                    noise_pred_total[:, start_t:end_t, top:bottom, left:right] += noise_pred[:, :initial_t]
-                    noise_pred_count[:, start_t:end_t, top:bottom, left:right] += window_mask[:, :initial_t]
-                    noise_pred_total[:, :end, top:bottom, left:right] += noise_pred[:, initial_t:]
-                    noise_pred_count[:, :end, top:bottom, left:right] += window_mask[:, initial_t:]
+                            noise_pred_total[:, start_t:end_t, start_y:end_y, start_x:end_x] += noise_pred[:, :initial_t, :initial_y, :initial_x]
+                            noise_pred_count[:, start_t:end_t, start_y:end_y, start_x:end_x] += window_mask[:, :initial_t, :initial_y, :initial_x]
+                            noise_pred_total[:, :end, start_y:end_y, start_x:end_x] += noise_pred[:, initial_t:, :initial_y, :initial_x]
+                            noise_pred_count[:, :end, start_y:end_y, start_x:end_x] += window_mask[:, initial_t:, :initial_y, :initial_x]
+
+                            noise_pred_total[:, start_t:end_t, :bottom, start_x:end_x] += noise_pred[:, :initial_t, initial_y:, :initial_x]
+                            noise_pred_count[:, start_t:end_t, :bottom, start_x:end_x] += window_mask[:, :initial_t, initial_y:, :initial_x]
+                            noise_pred_total[:, :end, :bottom, start_x:end_x] += noise_pred[:, initial_t:, initial_y:, :initial_x]
+                            noise_pred_count[:, :end, :bottom, start_x:end_x] += window_mask[:, initial_t:, initial_y:, :initial_x]
+
+                            noise_pred_total[:, start_t:end_t, start_y:end_y, :right] += noise_pred[:, :initial_t, :initial_y, initial_x:]
+                            noise_pred_count[:, start_t:end_t, start_y:end_y, :right] += window_mask[:, :initial_t, :initial_y, initial_x:]
+                            noise_pred_total[:, :end, start_y:end_y, :right] += noise_pred[:, initial_t:, :initial_y, initial_x:]
+                            noise_pred_count[:, :end, start_y:end_y, :right] += window_mask[:, initial_t:, :initial_y, initial_x:]
+
+                            noise_pred_total[:, start_t:end_t, :bottom, :right] += noise_pred[:, :initial_t, initial_y:, initial_x:]
+                            noise_pred_count[:, start_t:end_t, :bottom, :right] += window_mask[:, :initial_t, initial_y:, initial_x:]
+                            noise_pred_total[:, :end, :bottom, :right] += noise_pred[:, initial_t:, initial_y:, initial_x:]
+                            noise_pred_count[:, :end, :bottom, :right] += window_mask[:, initial_t:, initial_y:, initial_x:]
+                        else:
+                            # Horizontally wrapped
+                            # NOT vertically wrapped
+                            # Temporally wrapped
+                            noise_pred_total[:, start_t:end_t, top:bottom, start_x:end_x] += noise_pred[:, :initial_t, :, :initial_x]
+                            noise_pred_count[:, start_t:end_t, top:bottom, start_x:end_x] += window_mask[:, :initial_t, :, :initial_x]
+                            noise_pred_total[:, :end, top:bottom, start_x:end_x] += noise_pred[:, initial_t:, :, :initial_x]
+                            noise_pred_count[:, :end, top:bottom, start_x:end_x] += window_mask[:, initial_t:, :, :initial_x]
+
+                            noise_pred_total[:, start_t:end_t, top:bottom, :right] += noise_pred[:, :initial_t, :, initial_x:]
+                            noise_pred_count[:, start_t:end_t, top:bottom, :right] += window_mask[:, :initial_t, :, initial_x:]
+                            noise_pred_total[:, :end, top:bottom, :right] += noise_pred[:, initial_t:, :, initial_x:]
+                            noise_pred_count[:, :end, top:bottom, :right] += window_mask[:, initial_t:, :, initial_x:]
+                    elif is_wrap_vertical:
+                        # NOT horizontally wrapped
+                        # Vertically wrapped
+                        # Temporally wrapped
+                        start_y = top
+                        end_y = height
+                        initial_y = end_y - start_y
+
+                        noise_pred_total[:, start_t:end_t, start_y:end_y, left:right] += noise_pred[:, :initial_t, :initial_y]
+                        noise_pred_count[:, start_t:end_t, start_y:end_y, left:right] += window_mask[:, :initial_t, :initial_y]
+                        noise_pred_total[:, :end, start_y:end_y, left:right] += noise_pred[:, initial_t:, :initial_y]
+                        noise_pred_count[:, :end, start_y:end_y, left:right] += window_mask[:, initial_t:, :initial_y]
+
+                        noise_pred_total[:, start_t:end_t, :bottom, left:right] += noise_pred[:, :initial_t, initial_y:]
+                        noise_pred_count[:, start_t:end_t, :bottom, left:right] += window_mask[:, :initial_t, initial_y:]
+                        noise_pred_total[:, :end, :bottom, left:right] += noise_pred[:, initial_t:, initial_y:]
+                        noise_pred_count[:, :end, :bottom, left:right] += window_mask[:, initial_t:, initial_y:]
+                    else:
+                        # NOT horizontally wrapped
+                        # NOT vertically wrapped
+                        # Temporally wrapped
+                        noise_pred_total[:, start_t:end_t, top:bottom, left:right] += noise_pred[:, :initial_t]
+                        noise_pred_count[:, start_t:end_t, top:bottom, left:right] += window_mask[:, :initial_t]
+                        noise_pred_total[:, :end, top:bottom, left:right] += noise_pred[:, initial_t:]
+                        noise_pred_count[:, :end, top:bottom, left:right] += window_mask[:, initial_t:]
+                elif is_wrap_horizontal:
+                    start_x = left
+                    end_x = width
+                    initial_x = end_x - start_x
+                    if is_wrap_vertical:
+                        # Horizontally wrapped
+                        # Vertically wrapped
+                        # NOT temporally wrapped
+                        start_y = top
+                        end_y = height
+                        initial_y = end_y - start_y
+
+                        noise_pred_total[:, start:end, start_y:end_y, start_x:end_x] += noise_pred[:, :, :initial_y, :initial_x]
+                        noise_pred_count[:, start:end, start_y:end_y, start_x:end_x] += window_mask[:, :, :initial_y, :initial_x]
+                        noise_pred_total[:, start:end, :bottom, start_x:end_x] += noise_pred[:, :, initial_y:, :initial_x]
+                        noise_pred_count[:, start:end, :bottom, start_x:end_x] += window_mask[:, :, initial_y:, :initial_x]
+
+                        noise_pred_total[:, start:end, start_y:end_y, :right] += noise_pred[:, :, :initial_y, initial_x:]
+                        noise_pred_count[:, start:end, start_y:end_y, :right] += window_mask[:, :, :initial_y, initial_x:]
+                        noise_pred_total[:, start:end, :bottom, :right] += noise_pred[:, :, initial_y:, initial_x:]
+                        noise_pred_count[:, start:end, :bottom, :right] += window_mask[:, :, initial_y:, initial_x:]
+                    else:
+                        # NOT vertically wrapped
+                        # Horizontally wrapped
+                        # NOT temporally wrapped
+                        noise_pred_total[:, start:end, top:bottom, start_x:end_x] += noise_pred[:, :, :, :initial_x]
+                        noise_pred_count[:, start:end, top:bottom, start_x:end_x] += window_mask[:, :, :, :initial_x]
+
+                        noise_pred_total[:, start:end, top:bottom, :right] += noise_pred[:, :, :, initial_x:]
+                        noise_pred_count[:, start:end, top:bottom, :right] += window_mask[:, :, :, initial_x:]
+                elif is_wrap_vertical:
+                    # NOT horizontally wrapped
+                    # Vertically wrapped
+                    # NOT temporally wrapped
+                    start_y = top
+                    end_y = height
+                    initial_y = end_y - start_y
+
+                    noise_pred_total[:, start:end, start_y:end_y, left:right] += noise_pred[:, :, :initial_y]
+                    noise_pred_count[:, start:end, start_y:end_y, left:right] += window_mask[:, :, :initial_y]
+
+                    noise_pred_total[:, start:end, :bottom, left:right] += noise_pred[:, :, initial_y:]
+                    noise_pred_count[:, start:end, :bottom, left:right] += window_mask[:, :, initial_y:]
                 else:
+                    # NOT horizontally wrapped
+                    # NOT vertically wrapped
+                    # NOT temporally wrapped
                     noise_pred_total[:, start:end, top:bottom, left:right] += noise_pred
                     noise_pred_count[:, start:end, top:bottom, left:right] += window_mask
 
@@ -427,6 +640,8 @@ class WanPipeline:
         tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         generator: Optional[torch.Generator]=None,
         loop: bool=False,
+        tile_horizontal: bool=False,
+        tile_vertical: bool=False,
         use_tqdm: bool=True,
         cpu_offload: bool=True,
         flash_fix: bool=True,
@@ -620,6 +835,8 @@ class WanPipeline:
                     guidance_scale=guidance_scale,
                     seq_len=seq_len,
                     loop=loop,
+                    tile_horizontal=tile_horizontal,
+                    tile_vertical=tile_vertical,
                     do_classifier_free_guidance=do_classifier_free_guidance,
                 )
                 temp_x0 = self.scheduler.step( # type: ignore[attr-defined]
@@ -652,6 +869,26 @@ class WanPipeline:
                     torch.cat(
                         [l, l[:, :4]],
                         dim=1
+                    )
+                    for l in latents
+                ]
+
+            if tile_vertical:
+                # Duplication vertically x3
+                latents = [
+                    torch.cat(
+                        [l, l, l],
+                        dim=2
+                    )
+                    for l in latents
+                ]
+
+            if tile_horizontal:
+                # Duplication horizontally x3
+                latents = [
+                    torch.cat(
+                        [l, l, l],
+                        dim=3
                     )
                     for l in latents
                 ]

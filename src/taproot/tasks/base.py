@@ -1670,12 +1670,16 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
         """
         Get the offload models.
         """
+        if not self.enable_model_offload or not self.enable_sequential_offload:
+            return False
         return False if self.offload_models is None else self.offload_models
 
     def get_offload_tasks(self) -> Union[str, List[str], bool]:
         """
         Get the offload tasks.
         """
+        if not self.enable_task_offload or not self.enable_sequential_offload:
+            return False
         return False if self.offload_tasks is None else self.offload_tasks
 
     def load(self, allow_optional: bool=False) -> None:

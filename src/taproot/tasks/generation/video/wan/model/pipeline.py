@@ -642,6 +642,7 @@ class WanPipeline:
         loop: bool=False,
         tile_horizontal: bool=False,
         tile_vertical: bool=False,
+        tile_vae: bool=False,
         use_tqdm: bool=True,
         cpu_offload: bool=True,
         flash_fix: bool=True,
@@ -896,7 +897,7 @@ class WanPipeline:
             videos = self.vae.decode(
                 latents,
                 device=self.device,
-                tiled=True,
+                tiled=tile_vae,
             )
 
             if loop and flash_fix:

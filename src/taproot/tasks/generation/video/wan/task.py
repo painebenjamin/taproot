@@ -129,6 +129,7 @@ class WanVideoGeneration1B(Task):
         window_stride: Optional[int]=None,
         tile_horizontal: bool=False,
         tile_vertical: bool=False,
+        tile_vae: bool=False,
         tile_size: Optional[Union[str, int, Tuple[int, int]]]=None,
         tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         guidance_scale: float=5.0,
@@ -188,6 +189,7 @@ class WanVideoGeneration1B(Task):
             loop=loop,
             tile_horizontal=tile_horizontal,
             tile_vertical=tile_vertical,
+            tile_vae=tile_vae,
             generator=generator,
             cpu_offload=self.enable_model_offload,
         )

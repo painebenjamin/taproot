@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from numpy import ndarray as NDArray
     from PIL.Image import Image
 
-
 __all__ = ["ComputerVision"]
 
 class ComputerVision:
@@ -23,7 +22,7 @@ class ComputerVision:
             from google.colab.patches import cv2_imshow # type: ignore[import-not-found,import-untyped,unused-ignore]
             cv2_imshow(ComputerVision.convert_image(image))
         except:
-            import cv2 # type: ignore[import-not-found]
+            import cv2
             cv2.imshow(name, cls.convert_image(image))
             cv2.waitKey(0)
             cv2.destroyAllWindows()
@@ -35,7 +34,7 @@ class ComputerVision:
         """
         import cv2
         import numpy as np
-        return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR) # type: ignore[no-any-return]
+        return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
     @classmethod
     def revert_image(cls, array: NDArray[Any, Any]) -> Image:
@@ -64,7 +63,7 @@ class ComputerVision:
             image = cls.convert_image(image)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        return cv2.goodFeaturesToTrack( # type: ignore[no-any-return]
+        return cv2.goodFeaturesToTrack(
             image,
             mask=None,
             maxCorners=max_corners,
@@ -79,7 +78,7 @@ class ComputerVision:
         cls,
         image_1: Union[NDArray[Any, Any], Image],
         image_2: Union[NDArray[Any, Any], Image],
-        features: Optional[List[Tuple[int, int]]]=None,
+        features: Optional[Union[NDArray[Any, Any], List[Tuple[int, int]]]]=None,
         feature_max_corners: int=100,
         feature_quality_level: float=0.3,
         feature_min_distance: int=7,
@@ -103,6 +102,7 @@ class ComputerVision:
         
         image_1 = cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY)
         image_2 = cv2.cvtColor(image_2, cv2.COLOR_BGR2GRAY)
+
         # If no features passed, get them
         if features is None:
             features = cv2.goodFeaturesToTrack(
@@ -113,7 +113,8 @@ class ComputerVision:
                 minDistance=feature_min_distance,
                 blockSize=feature_block_size
             )
-        features_1, st, err = cv2.calcOpticalFlowPyrLK(
+
+        features_1, st, err = cv2.calcOpticalFlowPyrLK( # type: ignore[call-overload]
             image_1,
             image_2,
             features,
@@ -123,18 +124,25 @@ class ComputerVision:
             criteria=lk_criteria
         )
 
+        if features_1 is None:
+            h, w = image_1.shape
+            mask = np.zeros((h, w, 2)).astype(np.float32)
+            return mask, None
+
         selected_new = features_1[st == 1]
         selected_old = features[st == 1]
-        h, w = image_1.shape # type: ignore[union-attr]
+        h, w = image_1.shape
         mask = np.zeros((h, w, 2)).astype(np.float32)
+
         for i, (new, old) in enumerate(zip(selected_new, selected_old)):
             x1, y1 = new.ravel()
             x2, y2 = old.ravel()
             if 0 <= y1 < h and 0 <= x1 < w:
                 mask[floor(y1), floor(x1), 0] = x2 - x1
                 mask[floor(y1), floor(x1), 1] = y2 - y1
+
         features = selected_new.reshape(-1, 1, 2)
-        return mask, features
+        return mask, features # type: ignore[return-value]
 
     @classmethod
     def dense_flow(
@@ -158,20 +166,24 @@ class ComputerVision:
             image_2 = cls.convert_image(image_2)
 
         if method == "dense-lucas-kanade":
+            if not hasattr(cv2, "optflow"):
+                raise IOError("Dense Lucas-Kanade method requires opencv-contrib-python")
             flow = cv2.optflow.calcOpticalFlowSparseToDense(
                 cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY),
                 cv2.cvtColor(image_2, cv2.COLOR_BGR2GRAY),
                 None,
             )
         elif method == "farneback":
-            flow = cv2.calcOpticalFlowFarneback(
+            flow = cv2.calcOpticalFlowFarneback( # type: ignore[call-overload]
                 cv2.cvtColor(image_1, cv2.COLOR_BGR2GRAY),
                 cv2.cvtColor(image_2, cv2.COLOR_BGR2GRAY),
                 None,
                 *farneback_params
             )
         elif method == "rlof":
-            flow = cv2.optflow.calcOpticalFlowDenseRLOF(
+            if not hasattr(cv2, "optflow"):
+                raise IOError("Dense RLOF method requires opencv-contrib-python")
+            flow = cv2.optflow.calcOpticalFlowDenseRLOF( # type: ignore[call-overload]
                 image_1,
                 image_2,
                 None
@@ -179,7 +191,7 @@ class ComputerVision:
         else:
             raise IOError(f"Unknown dense optical flow method '{method}'")
 
-        return flow # type: ignore[no-any-return]
+        return flow
 
     @classmethod
     def flow_to_image(cls, flow: NDArray[Any, Any]) -> Image:
@@ -193,6 +205,6 @@ class ComputerVision:
         hsv[..., 1] = 255
         mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
         hsv[..., 0] = ang * 180 / np.pi / 2
-        hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+        hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX) # type: ignore[call-overload]
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
         return ComputerVision.revert_image(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))

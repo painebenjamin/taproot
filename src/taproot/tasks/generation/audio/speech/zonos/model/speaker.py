@@ -174,7 +174,7 @@ class Bottleneck(BasicBlock):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        out = self.bn3(self.conv3(out)) # type: ignore[operator]
         out += self.shortcut(x)
         out = F.relu(out)
         return out

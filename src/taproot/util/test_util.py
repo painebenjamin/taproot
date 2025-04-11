@@ -41,8 +41,9 @@ __all__ = [
     "assert_exception",
     "restrict_gpu",
     "get_test_audio",
-    "get_test_images",
+    "get_test_video",
     "get_test_image",
+    "get_test_images",
     "get_test_results",
     "get_test_result",
     "save_test_image",
@@ -525,6 +526,7 @@ def restrict_gpu() -> Iterator[None]:
 
     # We allow to() to mass through to cpu if it is called.
     original_to = torch.Tensor.to
+
     def maybe_raise_exception( # type: ignore[return]
         self: torch.Tensor,
         *args: Any,
@@ -573,11 +575,13 @@ def get_test_audio(
         )
     )
     returned_audios = []
+
     for root, _, files in os.walk(data_directory):
         if subject is not None:
             files = [file for file in files if file.startswith(subject)]
         files = [file for file in files if any(file.endswith(extension) for extension in extensions)]
         returned_audios.extend([os.path.join(root, file) for file in files])
+
     if len(returned_audios) < num_audios:
         raise FileNotFoundError(f"Only {len(returned_audios)} audio files found in {data_directory}, but {num_audios} were requested.")
 
@@ -595,8 +599,51 @@ def get_test_audio(
         if num_audios == 1:
             return result[0], result_transcripts[0]
         return list(zip(result, result_transcripts))
+
     if num_audios == 1:
         return result[0]
+
+    return result
+
+def get_test_video(
+    num_videos: int=1,
+    directory: str="sources",
+    subject: Optional[str]=None,
+    extensions: List[str]=[".mp4", ".avi", ".mov", ".mkv", ".gif", ".webp"],
+    shuffle: bool=False,
+) -> Union[str, List[str]]:
+    """
+    Returns a test video file.
+    """
+    data_directory = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..", # root
+            "tests",
+            "data",
+            directory,
+            "video"
+        )
+    )
+    returned_videos = []
+
+    for root, _, files in os.walk(data_directory):
+        if subject is not None:
+            files = [file for file in files if file.startswith(subject)]
+        files = [file for file in files if any(file.endswith(extension) for extension in extensions)]
+        returned_videos.extend([os.path.join(root, file) for file in files])
+
+    if len(returned_videos) < num_videos:
+        raise FileNotFoundError(f"Only {len(returned_videos)} video files found in {data_directory}, but {num_videos} were requested.")
+
+    if shuffle:
+        result = choices(returned_videos, k=num_videos)
+    else:
+        result = returned_videos[:num_videos]
+
+    if num_videos == 1:
+        return result[0]
+
     return result
 
 def get_test_images(
@@ -737,37 +784,6 @@ def save_test_image(
     image.save(path)
     return path
 
-def save_test_video(
-    frames: List[Image.Image],
-    subject: str,
-    format: str="mp4",
-    directory: str="results",
-    frame_rate: int=8,
-) -> str:
-    """
-    Saves a test video.
-    """
-    from .video_util import Video
-    data_directory = os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..", # root
-            "tests",
-            "data",
-            directory,
-            "video"
-        )
-    )
-    os.makedirs(data_directory, exist_ok=True)
-    existing_subject_videos = [video for video in os.listdir(data_directory) if subject in video]
-    number = len(existing_subject_videos) + 1
-    path = os.path.join(data_directory, f"{subject}_{number:04d}.{format}")
-    Video(
-        frames=frames,
-        frame_rate=frame_rate
-    ).save(path)
-    return path
-
 def save_test_audio(
     audio: Union[torch.Tensor, str, bytes, EncodedAudioProxy],
     subject: str,
@@ -812,6 +828,37 @@ def save_test_audio(
                 sample_rate=sample_rate
             )
         )
+    return path
+
+def save_test_video(
+    frames: List[Image.Image],
+    subject: str,
+    format: str="mp4",
+    directory: str="results",
+    frame_rate: int=8,
+) -> str:
+    """
+    Saves a test video.
+    """
+    from .video_util import Video
+    data_directory = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..", # root
+            "tests",
+            "data",
+            directory,
+            "video"
+        )
+    )
+    os.makedirs(data_directory, exist_ok=True)
+    existing_subject_videos = [video for video in os.listdir(data_directory) if subject in video]
+    number = len(existing_subject_videos) + 1
+    path = os.path.join(data_directory, f"{subject}_{number:04d}.{format}")
+    Video(
+        frames=frames,
+        frame_rate=frame_rate
+    ).save(path)
     return path
 
 IMAGE_SIMILARITY: Optional[Task] = None

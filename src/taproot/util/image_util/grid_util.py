@@ -209,12 +209,12 @@ class GridMaker:
                     if self.caption_position == "center":
                         text_y = grid_y + int((self.image_height - text_height) // 2) - pad_y
                     elif self.caption_position == "bottom":
-                        text_y = grid_y + self.image_height - text_height - pad_y
+                        text_y = grid_y + self.image_height - text_height - pad_y # type: ignore[assignment]
 
                     if self.caption_align == "center":
                         text_x = grid_x + int((self.image_width - text_width) // 2)
                     elif self.caption_align == "right":
-                        text_x = grid_x + self.image_width - text_width - pad_x
+                        text_x = grid_x + self.image_width - text_width - pad_x # type: ignore[assignment]
 
                 elif self.caption_position == "top":
                     text_y = grid_y - self.caption_height + pad_y

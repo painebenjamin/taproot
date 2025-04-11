@@ -22,6 +22,7 @@ from taproot.util import (
     make_noise,
     log_duration,
     sliding_3d_windows,
+    get_optimized_cfg_alpha,
 )
 
 class WanPipeline:
@@ -157,11 +158,11 @@ class WanPipeline:
         """
         initial_timestep = min(int(num_inference_steps * strength), num_inference_steps)
         t_start = max(num_inference_steps - initial_timestep, 0)
-        i_start = t_start * self.scheduler.order
-        timesteps = self.scheduler.timesteps[i_start:]
+        i_start = t_start * self.scheduler.order # type: ignore[attr-defined]
+        timesteps = self.scheduler.timesteps[i_start:] # type: ignore[attr-defined]
 
         if getattr(self.scheduler, "set_begin_index", None) is not None:
-            self.scheduler.set_begin_index(i_start)
+            self.scheduler.set_begin_index(i_start) # type: ignore[attr-defined]
 
         return timesteps, num_inference_steps - t_start
 
@@ -214,11 +215,13 @@ class WanPipeline:
         loop: bool,
         tile_horizontal: bool,
         tile_vertical: bool,
+        use_cfg_alpha: bool,
     ) -> torch.Tensor:
         """
         Predict noise at a given timestep
         """
         use_multidiffusion = (window_size and window_stride) or (tile_size and tile_stride)
+        batch_size = latents[0].shape[0]
 
         if use_multidiffusion:
             _, num_frames, height, width = latents[0].shape
@@ -420,7 +423,16 @@ class WanPipeline:
                             context=uncond,
                             seq_len=seq_len
                         )[0]
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
+
+                    if use_cfg_alpha:
+                        alpha = get_optimized_cfg_alpha(
+                            noise_pred_cond.view(batch_size, -1),
+                            noise_pred_uncond.view(batch_size, -1)
+                        )
+                        alpha = alpha.view(batch_size, 1, 1, 1)
+                        noise_pred = noise_pred_uncond * alpha + guidance_scale * (noise_pred_cond - noise_pred_uncond * alpha)
+                    else:
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
                 else:
                     noise_pred = self.transformer(
                         latent_model_input,
@@ -610,7 +622,16 @@ class WanPipeline:
                         context=uncond,
                         seq_len=seq_len
                     )[0]
-                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
+
+                if use_cfg_alpha:
+                    alpha = get_optimized_cfg_alpha(
+                        noise_pred_cond.view(batch_size, -1),
+                        noise_pred_uncond.view(batch_size, -1)
+                    )
+                    alpha = alpha.view(batch_size, 1, 1, 1)
+                    noise_pred = noise_pred_uncond * alpha + guidance_scale * (noise_pred_cond - noise_pred_uncond * alpha)
+                else:
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_cond - noise_pred_uncond)
             else:
                 noise_pred = self.transformer(
                     latent_model_input,
@@ -619,7 +640,7 @@ class WanPipeline:
                     seq_len=seq_len
                 )[0]
 
-        return noise_pred
+        return noise_pred # type: ignore[no-any-return]
 
     def __call__(
         self,
@@ -631,6 +652,8 @@ class WanPipeline:
         shift: float=5.0,
         video: Optional[torch.Tensor]=None,
         strength: float=0.6,
+        use_cfg_alpha: bool=False,
+        num_zero_steps: int=0,
         guidance_scale: float=5.0,
         guidance_end: Optional[float]=None,
         num_inference_steps: int=50,
@@ -689,6 +712,7 @@ class WanPipeline:
             with log_duration("encoding video"):
                 encoded_video = self.vae.encode(
                     [video.permute(1, 0, 2, 3).to(self.device, dtype=self.dtype)],
+                    tiled=tile_vae,
                     device=self.device,
                 )[0]
 
@@ -702,7 +726,7 @@ class WanPipeline:
 
             encoded_shape = encoded_video.shape
         else:
-            encoded_shape = self.vae.get_target_shape(
+            encoded_shape = self.vae.get_target_shape( # type: ignore[assignment]
                 num_frames=num_frames,
                 height=height,
                 width=width,
@@ -728,8 +752,8 @@ class WanPipeline:
                 tile_size = (tile_size[0] // spatial_comp, tile_size[1] // spatial_comp)
             elif isinstance(tile_size, str):
                 if ":" in tile_size:
-                    tile_size = tuple(map(int, tile_size.split(":")))
-                    tile_size = (tile_size[0] // spatial_comp, tile_size[1] // spatial_comp)
+                    tile_size = tuple(map(int, tile_size.split(":"))) # type: ignore[assignment]
+                    tile_size = (tile_size[0] // spatial_comp, tile_size[1] // spatial_comp) # type: ignore[operator]
                 else:
                     tile_size = int(tile_size) // spatial_comp
             else:
@@ -739,8 +763,8 @@ class WanPipeline:
                 tile_stride = (tile_stride[0] // spatial_comp, tile_stride[1] // spatial_comp)
             elif isinstance(tile_stride, str):
                 if ":" in tile_stride:
-                    tile_stride = tuple(map(int, tile_stride.split(":")))
-                    tile_stride = (tile_stride[0] // spatial_comp, tile_stride[1] // spatial_comp)
+                    tile_stride = tuple(map(int, tile_stride.split(":"))) # type: ignore[assignment]
+                    tile_stride = (tile_stride[0] // spatial_comp, tile_stride[1] // spatial_comp) # type: ignore[operator]
                 else:
                     tile_stride = int(tile_stride) // spatial_comp
             else:
@@ -798,17 +822,17 @@ class WanPipeline:
         if hasattr(self.transformer, "no_sync"):
             sync_context = self.transformer.no_sync
         else:
-            sync_context = nullcontext
+            sync_context = nullcontext # type: ignore[assignment]
 
         # Denoising loop
-        with amp.autocast("cuda", dtype=self.dtype), torch.no_grad(), sync_context(): # type: ignore[attr-defined]
+        with amp.autocast("cuda", dtype=self.dtype), torch.no_grad(), sync_context(): # type: ignore[attr-defined,operator]
             if cpu_offload:
                 with log_duration("onloading transformer"):
                     self.transformer.to(self.device)
 
             if encoded_video is not None:
                 latents = [
-                    self.scheduler.add_noise(
+                    self.scheduler.add_noise( # type: ignore[attr-defined]
                         encoded_video,
                         noise,
                         timesteps[:1]
@@ -824,22 +848,28 @@ class WanPipeline:
                 total=num_inference_steps
             ):
                 timestep = torch.stack([t])
-                noise_pred = self.predict_noise_at_timestep(
-                    timestep=timestep,
-                    latents=latents,
-                    cond=cond,
-                    uncond=uncond,
-                    window_size=window_size,
-                    window_stride=window_stride,
-                    tile_size=tile_size,
-                    tile_stride=tile_stride,
-                    guidance_scale=guidance_scale,
-                    seq_len=seq_len,
-                    loop=loop,
-                    tile_horizontal=tile_horizontal,
-                    tile_vertical=tile_vertical,
-                    do_classifier_free_guidance=do_classifier_free_guidance,
-                )
+
+                if i < num_zero_steps:
+                    noise_pred = torch.zeros_like(latents[0])
+                else:
+                    noise_pred = self.predict_noise_at_timestep(
+                        timestep=timestep,
+                        latents=latents,
+                        cond=cond,
+                        uncond=uncond,
+                        window_size=window_size,
+                        window_stride=window_stride,
+                        tile_size=tile_size,
+                        tile_stride=tile_stride,
+                        guidance_scale=guidance_scale,
+                        seq_len=seq_len,
+                        loop=loop,
+                        tile_horizontal=tile_horizontal,
+                        tile_vertical=tile_vertical,
+                        do_classifier_free_guidance=do_classifier_free_guidance,
+                        use_cfg_alpha=use_cfg_alpha,
+                    )
+
                 temp_x0 = self.scheduler.step( # type: ignore[attr-defined]
                     noise_pred.unsqueeze(0),
                     t,

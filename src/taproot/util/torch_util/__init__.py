@@ -1,6 +1,6 @@
 from .activation_util import *
-from .attention_util import *
 from .animation_util import *
+from .attention_util import *
 from .blending_util import *
 from .capability_util import *
 from .clamp_util import *
@@ -8,6 +8,7 @@ from .compatibility_util import *
 from .conv_util import *
 from .dtype_util import *
 from .filter_util import *
+from .inference_util import *
 from .init_util import *
 from .mask_util import *
 from .noise_util import *

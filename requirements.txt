@@ -1,0 +1,13 @@
+aioconsole
+async-lru
+click
+dbgpu[fuzz]
+docstring_parser
+msgpack
+omegaconf
+packaging<24.0
+pillow
+psutil
+pycryptodome
+requests
+setuptools

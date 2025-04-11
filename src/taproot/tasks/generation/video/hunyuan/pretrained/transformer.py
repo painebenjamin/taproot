@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 __all__ = [
     "HunyuanVideoTransformer",
     "HunyuanVideoTransformerInt8",
-    "HunyuanVideoTransformerNF4"
+    "HunyuanVideoTransformerNF4",
+    "HunyuanVideoTransformerQ80",
+    "HunyuanVideoTransformerQ6K",
+    "HunyuanVideoTransformerQ5KM",
+    "HunyuanVideoTransformerQ4KM",
+    "HunyuanVideoTransformerQ3KM"
 ]
 
 class HunyuanVideoTransformer(PretrainedModelMixin):
@@ -64,4 +69,44 @@ class HunyuanVideoTransformerNF4(HunyuanVideoTransformer):
     """
     model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer.nf4.bf16.safetensors"
     quantization = "bitsandbytes_4bit"
+    pre_quantized = True
+
+class HunyuanVideoTransformerQ80(HunyuanVideoTransformer):
+    """
+    Hunyuan Video Transformer model in Q8-0 quantization.
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer-q8-0.gguf"
+    quantization = "gguf"
+    pre_quantized = True
+
+class HunyuanVideoTransformerQ6K(HunyuanVideoTransformer):
+    """
+    Hunyuan Video Transformer model in Q6-K quantization.
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer-q6-k.gguf"
+    quantization = "gguf"
+    pre_quantized = True
+
+class HunyuanVideoTransformerQ5KM(HunyuanVideoTransformer):
+    """
+    Hunyuan Video Transformer model in Q5-K-M quantization.
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer-q5-k-m.gguf"
+    quantization = "gguf"
+    pre_quantized = True
+
+class HunyuanVideoTransformerQ4KM(HunyuanVideoTransformer):
+    """
+    Hunyuan Video Transformer model in Q4-K-M quantization.
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer-q4-k-m.gguf"
+    quantization = "gguf"
+    pre_quantized = True
+
+class HunyuanVideoTransformerQ3KM(HunyuanVideoTransformer):
+    """
+    Hunyuan Video Transformer model in Q3-K-M quantization.
+    """
+    model_url = "https://huggingface.co/benjamin-paine/taproot-common/resolve/main/video-generation-hunyuan-transformer-q3-k-m.gguf"
+    quantization = "gguf"
     pre_quantized = True

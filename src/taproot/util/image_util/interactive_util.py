@@ -23,7 +23,7 @@ def show_image(
         from IPython.display import display # type: ignore[import-not-found]
         display(image)
     except ImportError:
-        import cv2 # type: ignore[import-not-found]
+        import cv2
         import numpy as np
         # Show until a key is pressed
         cv2.imshow(title or "Image", cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR))

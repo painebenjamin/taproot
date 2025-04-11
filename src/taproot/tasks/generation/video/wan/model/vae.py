@@ -175,7 +175,7 @@ class Resample(nn.Module):
             if feat_cache is not None:
                 idx = feat_idx[0]
                 if feat_cache[idx] is None:
-                    feat_cache[idx] = "Rep"
+                    feat_cache[idx] = "Rep" # type: ignore[index]
                     feat_idx[0] += 1
                 else:
                     cache_x = x[:, :, -CACHE_T:, :, :].clone()
@@ -188,7 +188,7 @@ class Resample(nn.Module):
                         # cache last frame of last two chunk
                         cache_x = torch.cat(
                             [
-                                feat_cache[idx][:, :, -1, :, :]
+                                feat_cache[idx][:, :, -1, :, :] # type: ignore[union-attr,index]
                                 .unsqueeze(2)
                                 .to(cache_x.device),
                                 cache_x,
@@ -211,7 +211,7 @@ class Resample(nn.Module):
                     else:
                         x = self.time_conv(x, feat_cache[idx])
 
-                    feat_cache[idx] = cache_x
+                    feat_cache[idx] = cache_x # type: ignore[index]
                     feat_idx[0] += 1
 
                     x = x.reshape(b, 2, c, t, h, w)
@@ -227,15 +227,15 @@ class Resample(nn.Module):
             if feat_cache is not None:
                 idx = feat_idx[0]
                 if feat_cache[idx] is None:
-                    feat_cache[idx] = x.clone()
+                    feat_cache[idx] = x.clone() # type: ignore[index]
                     feat_idx[0] += 1
                 else:
                     cache_x = x[:, :, -1:, :, :].clone()
 
                     x = self.time_conv(
-                        torch.cat([feat_cache[idx][:, :, -1:, :, :], x], 2)
+                        torch.cat([feat_cache[idx][:, :, -1:, :, :], x], 2) # type: ignore[list-item,index]
                     )
-                    feat_cache[idx] = cache_x
+                    feat_cache[idx] = cache_x # type: ignore[index]
                     feat_idx[0] += 1
         return x
 
@@ -293,7 +293,7 @@ class ResidualBlock(nn.Module):
                     # cache last frame of last two chunk
                     cache_x = torch.cat(
                         [
-                            feat_cache[idx][:, :, -1, :, :]
+                            feat_cache[idx][:, :, -1, :, :] # type: ignore[union-attr,index]
                             .unsqueeze(2)
                             .to(cache_x.device),
                             cache_x,
@@ -301,7 +301,7 @@ class ResidualBlock(nn.Module):
                         dim=2,
                     )
                 x = layer(x, feat_cache[idx])
-                feat_cache[idx] = cache_x
+                feat_cache[idx] = cache_x # type: ignore[index]
                 feat_idx[0] += 1
             else:
                 x = layer(x)
@@ -448,13 +448,13 @@ class Encoder3d(nn.Module):
                 # cache last frame of last two chunk
                 cache_x = torch.cat(
                     [
-                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(cache_x.device),
+                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(cache_x.device), # type: ignore[union-attr,index]
                         cache_x,
                     ],
                     dim=2,
                 )
             x = self.conv1(x, feat_cache[idx])
-            feat_cache[idx] = cache_x
+            feat_cache[idx] = cache_x # type: ignore[index]
             feat_idx[0] += 1
         else:
             x = self.conv1(x)
@@ -482,7 +482,7 @@ class Encoder3d(nn.Module):
                     # cache last frame of last two chunk
                     cache_x = torch.cat(
                         [
-                            feat_cache[idx][:, :, -1, :, :]
+                            feat_cache[idx][:, :, -1, :, :] # type: ignore[union-attr,index]
                             .unsqueeze(2)
                             .to(cache_x.device),
                             cache_x,
@@ -490,7 +490,7 @@ class Encoder3d(nn.Module):
                         dim=2,
                     )
                 x = layer(x, feat_cache[idx])
-                feat_cache[idx] = cache_x
+                feat_cache[idx] = cache_x # type: ignore[index]
                 feat_idx[0] += 1
             else:
                 x = layer(x)
@@ -589,13 +589,13 @@ class Decoder3d(nn.Module):
                 # cache last frame of last two chunk
                 cache_x = torch.cat(
                     [
-                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(cache_x.device),
+                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(cache_x.device), # type: ignore[union-attr,index]
                         cache_x,
                     ],
                     dim=2,
                 )
             x = self.conv1(x, feat_cache[idx])
-            feat_cache[idx] = cache_x
+            feat_cache[idx] = cache_x # type: ignore[index]
             feat_idx[0] += 1
         else:
             x = self.conv1(x)
@@ -623,7 +623,7 @@ class Decoder3d(nn.Module):
                     # cache last frame of last two chunk
                     cache_x = torch.cat(
                         [
-                            feat_cache[idx][:, :, -1, :, :]
+                            feat_cache[idx][:, :, -1, :, :] # type: ignore[union-attr,index]
                             .unsqueeze(2)
                             .to(cache_x.device),
                             cache_x,
@@ -631,7 +631,7 @@ class Decoder3d(nn.Module):
                         dim=2,
                     )
                 x = layer(x, feat_cache[idx])
-                feat_cache[idx] = cache_x
+                feat_cache[idx] = cache_x # type: ignore[index]
                 feat_idx[0] += 1
             else:
                 x = layer(x)
@@ -923,7 +923,7 @@ class WanVideoVAE(nn.Module):
         self,
         data: torch.Tensor,
         is_bound: Tuple[bool, bool, bool, bool],
-        border_width: int
+        border_width: Tuple[int, int],
     ) -> torch.Tensor:
         """
         :param data: data tensor [B, C, T, H, W]
@@ -1074,7 +1074,7 @@ class WanVideoVAE(nn.Module):
                 target_w: target_w + hidden_states_batch.shape[4],
             ] += mask
         values = values / weight
-        return values
+        return values.to(device)
 
     def single_encode(
         self,
@@ -1111,8 +1111,8 @@ class WanVideoVAE(nn.Module):
         videos: List[torch.Tensor],
         device: torch.device,
         tiled: bool=False,
-        tile_size: Tuple[int, int]=(34, 34),
-        tile_stride: Tuple[int, int]=(18, 16)
+        tile_size: Tuple[int, int]=(66, 66),
+        tile_stride: Tuple[int, int]=(34, 32)
     ) -> torch.Tensor:
         """
         :param videos: list of video tensors [C, T, H, W]
@@ -1135,8 +1135,7 @@ class WanVideoVAE(nn.Module):
             hidden_state = hidden_state.squeeze(0)
             hidden_states.append(hidden_state)
 
-        hidden_states = torch.stack(hidden_states)
-        return hidden_states
+        return torch.stack(hidden_states)
 
     @torch.no_grad()
     def decode(
@@ -1144,8 +1143,8 @@ class WanVideoVAE(nn.Module):
         hidden_states: List[torch.Tensor],
         device: torch.device,
         tiled: bool=False,
-        tile_size: Tuple[int, int]=(34, 34),
-        tile_stride: Tuple[int, int]=(18, 16),
+        tile_size: Tuple[int, int]=(66, 66),
+        tile_stride: Tuple[int, int]=(34, 32),
         loop: bool=False
     ) -> List[torch.Tensor]:
         """

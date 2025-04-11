@@ -31,7 +31,7 @@ class Module(torch.nn.Module):
         try:
             return next(self.parameters()).device
         except StopIteration:
-            return self.dummy.device # type: ignore[no-any-return]
+            return self.dummy.device # type: ignore[return-value]
 
     @property
     def dtype(self) -> torch.dtype:
@@ -41,7 +41,7 @@ class Module(torch.nn.Module):
         try:
             return next(self.parameters()).dtype
         except StopIteration:
-            return self.dummy.dtype # type: ignore[no-any-return]
+            return self.dummy.dtype # type: ignore[return-value]
 
     @property
     def num_params(self) -> int:

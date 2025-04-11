@@ -56,7 +56,7 @@ class RotaryEmbedding(Module):
         :return: output tensor
         """
         max_pos = x.max() + 1
-        freqs = torch.einsum("i , j -> i j", x.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor
+        freqs = torch.einsum("i , j -> i j", x.type_as(self.inv_freq), self.inv_freq) / self.interpolation_factor # type: ignore[arg-type]
         freqs = torch.stack((freqs, freqs), dim=-1)
         freqs = rearrange(freqs, "... d r -> ... (d r)")
 

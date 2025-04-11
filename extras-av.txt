@@ -1,0 +1,2 @@
+pyav
+moviepy<2.0

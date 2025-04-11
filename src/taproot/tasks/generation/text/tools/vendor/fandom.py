@@ -30,7 +30,7 @@ class FandomTool(Tool):
         search_soup = BeautifulSoup(search_response.text, "html.parser")
         community_result = search_soup.find("div", class_="unified-search__community")
         if community_result is not None:
-            return community_result.find("a").get("href") # type: ignore[union-attr,return-value]
+            return community_result.find("a").get("href") # type: ignore[no-any-return,attr-defined]
         return None
 
     def search(
@@ -77,9 +77,9 @@ class FandomTool(Tool):
             search_soup = BeautifulSoup(search_response.text, "html.parser")
             search_results = search_soup.find_all("li", class_="unified-search__result")
             for result in search_results[:max_results_per_search]:
-                result_title = result.find("a", class_="unified-search__result__title")
-                result_url = result_title.get("href")
-                result_title = multiline_trim(result_title.get_text())
+                result_title = result.find("a", class_="unified-search__result__title") # type: ignore[union-attr,call-arg]
+                result_url = result_title.get("href") # type: ignore[union-attr]
+                result_title = multiline_trim(result_title.get_text()) # type: ignore[union-attr]
                 yield result_title, result_url
 
     def get_page_content(self, url: str) -> str:
@@ -97,9 +97,9 @@ class FandomTool(Tool):
             edit_section.replace_with("")
         section_title = None
         for child in content.children: # type: ignore[union-attr]
-            if child.name not in {"p", "ul", "ol", "h2", "h3", "dl", "dd", "quote", "table"}: # type: ignore[union-attr]
+            if child.name not in {"p", "ul", "ol", "h2", "h3", "dl", "dd", "quote", "table"}:
                 child.replace_with("")
-            elif child.name in {"h2", "h3"}: # type: ignore[union-attr]
+            elif child.name in {"h2", "h3"}:
                 section_title = re.sub(r"[^a-zA-Z0-9 ]", "", multiline_trim(child.get_text().lower()))
                 if section_title in self.ignored_sections:
                     child.replace_with("")

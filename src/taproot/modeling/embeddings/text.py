@@ -77,7 +77,7 @@ class TextEmbedding(Module):
             t,
             max_pos=self.precompute_max_pos,
         )
-        text_pos_embed = self.freqs_cis[pos_idx]
+        text_pos_embed = self.freqs_cis[pos_idx] # type: ignore[index]
         text = text + text_pos_embed
         return text
 

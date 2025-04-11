@@ -1,9 +1,17 @@
 from __future__ import annotations
 
-import random
-
 from dataclasses import dataclass
-from typing import Optional, Union, Tuple, Callable, Any, Literal, Dict, Literal, TYPE_CHECKING
+from typing import (
+    Optional,
+    Union,
+    Tuple,
+    Callable,
+    Any,
+    Literal,
+    Dict,
+    Literal,
+    TYPE_CHECKING
+)
 
 if TYPE_CHECKING:
     from torch import (

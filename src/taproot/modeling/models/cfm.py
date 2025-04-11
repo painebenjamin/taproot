@@ -409,7 +409,7 @@ and Faithful Speech with Flow Matching" (2024).
             [
                 torch.randn(
                     d,
-                    self.num_channels,
+                    self.num_channels, # type: ignore[arg-type]
                     device=self.device,
                     dtype=step_cond.dtype,
                     generator=generator

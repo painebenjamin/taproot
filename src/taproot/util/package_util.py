@@ -549,21 +549,7 @@ def get_pending_packages(packages: Dict[str, Optional[str]]) -> Dict[str, Option
             pending_packages[package_name] = spec
     return pending_packages
 
-def install_mim_packages(args: List[str]) -> int:
-    """
-    Install packages using MIM.
-    """
-    from mim.commands.install import install # type: ignore[import-untyped,import-not-found,unused-ignore]
-    return install(args) # type: ignore[no-any-return]
-
-def install_pip_packages(args: List[str]) -> int:
-    """
-    Install packages using pip.
-    """
-    from pip._internal.commands import create_command
-    return create_command("install").main(args)
-
-def is_mim_package(package_name: str) -> bool:
+def is_mmlab_package(package_name: str) -> bool:
     """
     Returns whether or not the package is one that is installed by MIM.
     """
@@ -574,6 +560,38 @@ def is_mim_package(package_name: str) -> bool:
         "mmhuman3d", "mmselfsup", "mmfewshot", "mmaction2",
         "mmflow", "mmdeploy", "mmrazor"
     ]
+
+def install_pip_packages(args: List[str]) -> int:
+    """
+    Install packages using pip. Will use uv if it is available.
+    """
+    from .log_util import logger
+    # TODO: Remove this after torch fixes MarkupSafe
+    args = [
+        arg for arg in args
+        if not arg.startswith("MarkupSafe")
+    ] + ["MarkupSafe==2.1.5"]
+
+    if binary_is_available("uv"):
+        use_add = os.getenv("UV_USE_ADD", "1").lower()[:1] in ["1", "t", "y"]
+        if use_add:
+            args = [
+                "--index" if arg == "--extra-index-url"
+                else arg for arg in args
+            ]
+            command = ["uv", "add"] + args
+        else:
+            command = ["uv", "pip", "install"] + args
+
+        from subprocess import Popen
+        logger.debug(f"Installing packages in subprocess with command: {command}")
+        process = Popen(command + ["--index-strategy", "unsafe-best-match"])
+        process.wait()
+        return process.returncode
+    else:
+        from pip._internal.commands import create_command
+        logger.debug(f"Installing packages with pip: {args}")
+        return create_command("install").main(args)
 
 def install_packages(
     packages: Dict[str, Optional[str]],
@@ -587,7 +605,7 @@ def install_packages(
         logger.debug("No packages to install.")
         return
 
-    use_mim = False 
+    has_mmlab = False 
     name_specs: Dict[str, str] = {}
     for package_name, spec in packages.items():
         package_name = get_pip_package_name(package_name)
@@ -602,8 +620,8 @@ def install_packages(
                 # Build the package from source
                 logger.debug("Setting CMAKE_ARGS environment variable to enable CUDA for llama-cpp-python")
                 os.environ["CMAKE_ARGS"] = "-DGGML_CUDA=on"
-        if is_mim_package(package_name):
-            use_mim = True
+        if is_mmlab_package(package_name):
+            has_mmlab = True
         elif is_torch_package(package_name):
             new_spec = get_torch_package_version(package_name, spec, cuda_only=True)
             if new_spec is not None:
@@ -612,7 +630,7 @@ def install_packages(
 
         name_specs[package_name] = spec or ""
 
-    install_torch_first = use_mim or any([
+    install_torch_first = has_mmlab or any([
         is_torch_dependent_package(package_name)
         for package_name in name_specs
     ]) and not package_is_installed("torch")
@@ -620,13 +638,6 @@ def install_packages(
     if install_torch_first:
         torch_spec = name_specs.get("torch", None)
         install_package("torch", torch_spec)
-
-    if use_mim:
-        # Make sure openmim is installed
-        openmim_installed = package_is_installed("openmim")
-        if not openmim_installed:
-            openmim_spec = name_specs.pop("openmim", None)
-            install_package("openmim", openmim_spec)
 
     # Install ninja before installing any packages that may benefit from it
     install_ninja = "ninja" in name_specs
@@ -641,18 +652,12 @@ def install_packages(
     ] + [
         chunk for REPO_URL in [NVIDIA_REPO_URL, TORCH_REPO_URL, LLAMA_CPP_REPO_URL]
         for chunk in ["--extra-index-url", REPO_URL]
-    ]
+    ] + ["--no-build-isolation"]
 
     if reinstall:
         main_args.append("--ignore-installed")
 
-    logger.debug(f"Installing {'mim' if use_mim else 'pip'} packages with command `{' '.join(main_args)}`")
-
-    if use_mim:
-        status_code = install_mim_packages(main_args)
-    else:
-        status_code = install_pip_packages(main_args)
-
+    status_code = install_pip_packages(main_args)
     assert status_code == 0, "Failed to install packages"
 
 def install_package(package_name: str, spec: Optional[str]=None) -> None:

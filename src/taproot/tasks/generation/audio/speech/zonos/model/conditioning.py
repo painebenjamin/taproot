@@ -117,7 +117,7 @@ class FourierConditioner(Conditioner):
     def apply_cond(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.input_dim
         x = (x - self.min_val) / (self.max_val - self.min_val)  # [batch_size, seq_len, input_dim]
-        f = 2 * torch.pi * x.to(self.weight.dtype) @ self.weight.T  # [batch_size, seq_len, output_dim // 2]
+        f = 2 * torch.pi * x.to(self.weight.dtype) @ self.weight.T  # type: ignore[operator,arg-type]
         return torch.cat([f.cos(), f.sin()], dim=-1)  # [batch_size, seq_len, output_dim]
 
 class IntegerConditioner(Conditioner):

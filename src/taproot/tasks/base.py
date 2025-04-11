@@ -1419,7 +1419,7 @@ class Task(ConfigMixin, IntrospectableMixin, AttributionMixin):
             result = to_bhwc_ndarray(result)
         elif output_format in ["mp4", "gif", "webp"]:
             return self.get_output_from_video_result(
-                [result],
+                [result], # type: ignore[arg-type]
                 output_format=output_format,
                 output_upload=output_upload,
             )

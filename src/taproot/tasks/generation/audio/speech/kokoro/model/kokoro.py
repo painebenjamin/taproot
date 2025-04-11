@@ -239,7 +239,7 @@ class KokoroModel(nn.Module):
             if ext == ".safetensors":
                 import safetensors
                 voices = {}
-                with safetensors.safe_open(voice_pack, framework="pt", device="cpu") as f: # type: ignore[no-untyped-call,attr-defined]
+                with safetensors.safe_open(voice_pack, framework="pt", device="cpu") as f: # type: ignore[no-untyped-call]
                     for key in f.keys():
                         voices[key] = f.get_tensor(key)
             else:

@@ -111,7 +111,7 @@ def draw_lines(
     """
     from PIL import Image
     import numpy as np
-    import cv2 # type: ignore[import-not-found]
+    import cv2
 
     img = np.zeros((height, width, 3), np.uint8)
     w_ratio = width / 512

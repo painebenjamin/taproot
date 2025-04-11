@@ -612,7 +612,7 @@ def retrieve_uri(uri: str, chunk_size: int=8192) -> BinaryIO:
     """
     try:
         from fruition.resources.retriever import RetrieverIO # type: ignore[import-not-found,unused-ignore]
-        return RetrieverIO(uri) # type: ignore[return-value]
+        return RetrieverIO(uri) # type: ignore[no-any-return,return-value,unused-ignore]
     except ImportError:
         if uri.startswith("http"):
             from requests import get

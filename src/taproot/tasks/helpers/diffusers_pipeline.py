@@ -406,7 +406,7 @@ class DiffusersPipelineTask(Task):
                     adapter_state_dict["ip_adapter"][key.replace("ip_adapter.", "")] = value
             state_dicts.append(adapter_state_dict)
 
-        self.get_denoising_model()._load_ip_adapter_weights(state_dicts)
+        self.get_denoising_model()._load_ip_adapter_weights(state_dicts) # type: ignore[operator]
         # TODO: FaceID LoRA
         if hasattr(pipeline, "set_ip_adapter_scale"):
             logger.debug(f"Setting IP adapter scales for {type(self).__name__}: {scales}.")
@@ -525,13 +525,13 @@ class DiffusersPipelineTask(Task):
                 logger.warning(f"No VAE found for {type(self).__name__}, cannot enable tiling.")
             else:
                 logger.debug(f"Enabling VAE tiling for {type(self).__name__}.")
-                vae.enable_tiling()
+                vae.enable_tiling() # type: ignore[operator]
         if self.enable_encode_slicing or kwargs.get("enable_encode_slicing", False):
             if vae is None:
                 logger.warning(f"No VAE found for {type(self).__name__}, cannot enable slicing.")
             else:
                 logger.debug(f"Enabling VAE slicing for {type(self).__name__}.")
-                vae.enable_slicing()
+                vae.enable_slicing() # type: ignore[operator]
         if self.enable_model_offload or kwargs.get("enable_model_offload", False):
             if hasattr(pipeline, "enable_model_cpu_offload"):
                 logger.debug(f"Enabling model CPU offload for {type(self).__name__}.")
@@ -746,13 +746,13 @@ class DiffusersPipelineTask(Task):
             return None
 
         prompts = [
-            prompt if isinstance(prompt, list) else [prompt] # type: ignore[list-item]
+            prompt if isinstance(prompt, list) else [prompt]
             for prompt in prompts
         ]
 
         if negative_prompts is not None:
             negative_prompts = [
-                negative_prompt if isinstance(negative_prompt, list) else [negative_prompt] # type: ignore[list-item]
+                negative_prompt if isinstance(negative_prompt, list) else [negative_prompt]
                 for negative_prompt in negative_prompts
             ]
 
@@ -962,10 +962,10 @@ class DiffusersPipelineTask(Task):
         """
         denoising_model = self.get_denoising_model()
         try:
-            projection_layers = denoising_model.encoder_hid_proj.image_projection_layers
+            projection_layers = denoising_model.encoder_hid_proj.image_projection_layers # type: ignore[union-attr]
         except AttributeError:
             raise ValueError("No image projection layers found in denoising model for IP adapter embedding encoding. Did you enable IP adapter(s) before trying to get embeddings?")
-        return projection_layers # type: ignore[no-any-return]
+        return projection_layers # type: ignore[return-value]
 
     def compile_ip_adapter_embeds_into_kwargs(
         self,

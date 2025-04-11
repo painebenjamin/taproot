@@ -669,8 +669,8 @@ class Client(Encryption):
                         async with session.post(
                             self.address,
                             data=encoded,
-                            timeout=timeout,
-                            ssl=self.ssl_context,
+                            timeout=timeout, # type: ignore[arg-type]
+                            ssl=self.ssl_context, # type: ignore[arg-type]
                             headers={"Content-Type": "application/octet-stream"}
                         ) as http_response:
                             if http_response.status != 200:

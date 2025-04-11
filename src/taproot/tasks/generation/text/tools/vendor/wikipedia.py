@@ -45,17 +45,17 @@ class WikipediaTool(Tool):
         page_content.raise_for_status()
         soup = BeautifulSoup(page_content.text, "html.parser")
         for section in soup.find_all("section"):
-            section_header = section.find("h2")
+            section_header = section.find("h2") # type: ignore[union-attr]
             if section_header is not None:
-                section_id = section_header.get("id")
+                section_id = section_header.get("id") # type: ignore[union-attr]
                 if section_id.lower() in self.ignored_sections:
                     section.decompose()
                     continue
-            for child in section.children:
-                if child.name not in {"p", "ul", "ol", "h2", "h3"}:
-                    child.replace_with("")
-            for superscript_ref in section.find_all("sup", class_="reference"):
-                superscript_ref.replace_with("")
+            for child in section.children: # type: ignore[union-attr]
+                if child.name not in {"p", "ul", "ol", "h2", "h3"}: # type: ignore[union-attr]
+                    child.replace_with("") # type: ignore[arg-type]
+            for superscript_ref in section.find_all("sup", class_="reference"): # type: ignore[union-attr]
+                superscript_ref.replace_with("") # type: ignore[arg-type]
         return soup.get_text()
 
     def __call__(

@@ -4,7 +4,7 @@ from taproot.util import to_bchw_tensor, maybe_use_tqdm
 from taproot.constants import *
 from taproot.tasks.base import Task
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import torch
     from taproot.hinting import ImageType, ImageResultType
@@ -26,7 +26,7 @@ class VideoFrameInterpolationTaskBase(Task):
         Add mapped modules as properties for convenience and type hinting.
         """
         try:
-            return self.tasks.interpolate
+            return self.tasks.interpolate # type: ignore[no-any-return]
         except Exception as e:
             raise AttributeError("Interpolator not available - did you configure `component_tasks[interpolate]`?") from e
 
@@ -36,22 +36,22 @@ class VideoFrameInterpolationTaskBase(Task):
         self,
         left: torch.Tensor,
         right: torch.Tensor,
-        multiplier: int
+        num_frames: int
     ) -> torch.Tensor:
         """
         Invokes the interpolator task with the given tensors.
 
         :param left: The left image tensor.
         :param right: The right image tensor.
-        :param multiplier: The number of frames to interpolate between the two images.
+        :param num_frames: The number of frames to interpolate between the two images.
         :return: The interpolated tensor.
         """
         import torch
         interpolated = self.interpolator(
             start=left,
             end=right,
-            num_frames=multiplier,
-            include_ends=False,
+            num_frames=num_frames,
+            include_ends=True,
             output_format="float",
             output_upload=False
         )
@@ -65,7 +65,7 @@ class VideoFrameInterpolationTaskBase(Task):
         *,
         video: ImageType,
         loop: bool=False,
-        multiplier: int=2,
+        num_frames: int=1,
         frame_rate: int=DEFAULT_FRAME_RATE,
         output_format: VIDEO_OUTPUT_FORMAT_LITERAL="mp4",
         output_upload: bool=False,
@@ -75,48 +75,58 @@ class VideoFrameInterpolationTaskBase(Task):
 
         :param video: The input video.
         :param loop: Whether to loop the video.
-        :param multiplier: The number of frames to interpolate between each pair of frames.
+        :param num_frames: The number of frames to interpolate between each pair of frames.
         :param frame_rate: The frame rate of the output video.
         :param output_format: The output video format.
         :param output_upload: Whether to upload the output video.
         :return: The interpolated video.
         """
+        assert num_frames > 0, "num_frames must be greater than 0"
         import torch
         with torch.inference_mode():
             # Use utility methods to standardize the input
             images = to_bchw_tensor(video, num_channels=3)
-            num_frames, _, height, width = images.shape
-            num_output_frames = num_frames * multiplier
+            num_input_frames, _, height, width = images.shape
+            num_interpolated_frames = num_input_frames * num_frames
+            if loop:
+                num_interpolated_frames += 1
+            else:
+                num_interpolated_frames -= num_frames
 
-            if not loop:
-                num_output_frames -= multiplier
-
+            num_output_frames = num_input_frames + num_interpolated_frames
             results = torch.zeros(
                 (num_output_frames, 3, height, width),
                 device=torch.device("cpu"),
                 dtype=torch.float32
             )
 
-            for i in maybe_use_tqdm(range(num_frames), desc="Interpolating frames", total=num_frames):
+            for i in maybe_use_tqdm(
+                range(num_input_frames),
+                desc="Interpolating frames",
+                total=num_input_frames
+            ):
                 left = images[i]
 
-                if i == num_frames - 1:
+                if i == num_input_frames - 1:
                     if not loop:
                         break
                     right = images[0]
                 else:
                     right = images[i + 1]
 
-                start_i = i * multiplier
-
+                start_i = i * (num_frames + 1)
                 results[start_i] = left
-                results[start_i:start_i + multiplier] = self.interpolate(
+
+                interpolated = self.interpolate(
                     left=left,
                     right=right,
-                    multiplier=multiplier
+                    num_frames=num_frames
                 )
+                results[start_i:start_i+num_frames+2] = interpolated
 
-            if not loop:
+            if loop:
+                results = results[:-1]
+            else:
                 # Add final frame
                 results[-1] = images[-1]
 

@@ -83,13 +83,13 @@ class BlackHole(StringIO):
         """
         return len(s)
 
-class BlackHoleStandardOutput(DummyStandardOutput, BlackHole): # type: ignore[misc]
+class BlackHoleStandardOutput(DummyStandardOutput, BlackHole):
     """
     A StringIO that acts like a standard output stream, but doesn't store anything.
     """
     pass
 
-class BlackHoleStandardError(DummyStandardError, BlackHole): # type: ignore[misc]
+class BlackHoleStandardError(DummyStandardError, BlackHole):
     """
     A StringIO that acts like a standard error stream, but doesn't store anything.
     """

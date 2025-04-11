@@ -411,7 +411,7 @@ class Generator(torch.nn.Module):
         for l in self.resblocks:
             l.remove_weight_norm()
 
-        remove_weight_norm(self.conv_pre)
+        remove_weight_norm(self.conv_pre) # type: ignore[type-var]
         remove_weight_norm(self.conv_post)
 
     def forward(

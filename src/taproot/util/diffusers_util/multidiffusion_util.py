@@ -40,7 +40,7 @@ def enable_2d_multidiffusion(
             tile_size = tile_size[0]
         elif tile_size is None:
             if hasattr(model.config, "joint_attention_dim"):
-                tile_size = model.config.joint_attention_dim
+                tile_size = model.config.joint_attention_dim # type: ignore[assignment]
             else:
                 tile_size = 4096
 
@@ -56,7 +56,7 @@ def enable_2d_multidiffusion(
             tile_width, tile_height = tile_size
         else:
             if hasattr(model.config, "sample_size"):
-                tile_width = tile_height = model.config.sample_size
+                tile_width = tile_height = model.config.sample_size # type: ignore[assignment]
             else:
                 tile_width = tile_height = 128
 
@@ -76,17 +76,17 @@ def enable_2d_multidiffusion(
     if hasattr(model, "device"):
         device = model.device
     else:
-        device = next(model.parameters()).device
+        device = next(model.parameters()).device # type: ignore[assignment]
 
     if hasattr(model, "dtype"):
         dtype = model.dtype
     else:
-        dtype = next(model.parameters()).dtype
+        dtype = next(model.parameters()).dtype # type: ignore[assignment]
 
     logger.debug(f"Enabling 2D multi-diffusion with tile size {tile_size}, stride {tile_stride}, and mask type {mask_type} on {type(model).__name__}")
 
     # Initialize mask builder
-    mask_builder = MaskWeightBuilder(device=device, dtype=dtype)
+    mask_builder = MaskWeightBuilder(device=device, dtype=dtype) # type: ignore[arg-type]
 
     # Store original forward method
     if not hasattr(model, ORIGINAL_FORWARD_ATTRIBUTE_NAME):
@@ -122,15 +122,13 @@ def enable_2d_multidiffusion(
             windows = sliding_windows(
                 height=h,
                 width=w,
-                tile_size=tile_size,
+                tile_size=tile_size, # type: ignore[arg-type]
                 tile_stride=tile_stride
             )
 
-            """
             if len(windows) <= 1 and spatial_prompts is None:
                 # No tiling or masking needed
                 return original_forward(**kwargs)
-            """
 
             result: Any = None
             result_count: Any = None
@@ -157,8 +155,8 @@ def enable_2d_multidiffusion(
                 if spatial_prompts is not None:
                     embeddings, pooled_embeddings, mask = spatial_prompts.get_embeddings(
                         position=(left, top, right, bottom),
-                        device=device,
-                        dtype=dtype,
+                        device=device, # type: ignore[arg-type]
+                        dtype=dtype, # type: ignore[arg-type]
                     )
 
                 if mask is not None:

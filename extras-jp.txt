@@ -1,0 +1,3 @@
+kanjize
+sudachipy
+sudachidict_full

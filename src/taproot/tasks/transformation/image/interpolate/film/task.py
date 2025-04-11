@@ -77,7 +77,7 @@ class FILMInterpolation(Task):
         end, crop_end = pad_image_to_nearest(end, 64, return_crop=True) # type: ignore[misc, assignment]
 
         assert crop_start == crop_end, "Images must be the same size"
-        l, t, r, b = crop_start # type: ignore[misc]
+        l, t, b, r = crop_start # type: ignore[misc]
 
         indexes = [0, num_frames + 1]
         remains = list(range(1, num_frames + 1))
@@ -110,8 +110,10 @@ class FILMInterpolation(Task):
 
             del remains[step]
 
+        print(f"{t=}, {l=}, {b=}, {r=} {crop_start=} {crop_end=} {results[0].shape=}")
+
         return torch.cat([
-            result.cpu()[:, t:b, l:r] # type: ignore[misc]
+            result.detach().cpu()[:, :, t:b, l:r] # type: ignore[misc]
             for result in results
         ], dim=0)
 
@@ -140,13 +142,28 @@ class FILMInterpolation(Task):
         import torch
         with torch.inference_mode():
             # Use utility methods to standardize the input
-            start = to_bchw_tensor(start, num_channels=3, dtype=self.dtype).to(self.device)
-            end = to_bchw_tensor(end, num_channels=3, dtype=self.dtype).to(self.device)
-
+            start = to_bchw_tensor(
+                start,
+                num_channels=3,
+                dtype=self.dtype
+            ).to(self.device)
+            end = to_bchw_tensor(
+                end,
+                num_channels=3,
+                dtype=self.dtype
+            ).to(self.device)
+            # Interpolate the frames
             results = self.interpolate_frames(
                 start,
                 end,
                 num_frames=num_frames
+            )
+            # Resize the images to the original size
+            results = torch.nn.functional.interpolate(
+                results,
+                start.shape[-2:],
+                mode="bilinear",
+                align_corners=False
             )
             if not include_ends:
                 results = results[1:-1]

@@ -23,7 +23,7 @@ def wrap_module_forward_dtype(
     if hasattr(module, "_pre_wrap_module_forward_dtype"):
         module_forward = module._pre_wrap_module_forward_dtype
     else:
-        module_forward = module.forward
+        module_forward = module.forward # type: ignore[assignment]
 
     def maybe_convert(arg: Any, dtype: torch.dtype) -> Any:
         """
@@ -45,7 +45,7 @@ def wrap_module_forward_dtype(
             args = maybe_convert(args, input_dtype)
             kwargs = maybe_convert(kwargs, input_dtype)
 
-        output = module_forward(*args, **kwargs)
+        output = module_forward(*args, **kwargs) # type: ignore[operator]
 
         if output_dtype is not None:
             output = maybe_convert(output, output_dtype)
@@ -60,5 +60,5 @@ def unwrap_module_forward_dtype(module: torch.nn.Module) -> None:
     Unwrap a module that was wrapped by `wrap_module_forward_dtype`.
     """
     if hasattr(module, "_pre_wrap_module_forward_dtype"):
-        module.forward = module._pre_wrap_module_forward_dtype
+        module.forward = module._pre_wrap_module_forward_dtype # type: ignore[assignment]
         del module._pre_wrap_module_forward_dtype

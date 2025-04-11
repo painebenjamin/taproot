@@ -39,7 +39,7 @@ def safe_resize(image: np.ndarray[Any, Any], resolution: int, nearest: int=64) -
     """
     Resizes an image to the specified resolution, padding if necessary.
     """
-    import cv2 # type: ignore[import-not-found]
+    import cv2
     import numpy as np
     h, w, c = image.shape
     k = float(resolution) / min(h, w)

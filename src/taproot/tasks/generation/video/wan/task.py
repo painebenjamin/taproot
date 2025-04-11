@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import Dict, Tuple, Union, Optional, TYPE_CHECKING
 
 from taproot.constants import *
 from taproot.util import get_seed, get_diffusers_scheduler_by_name, to_bchw_tensor
@@ -22,7 +22,7 @@ from .pretrained import (
 
 if TYPE_CHECKING:
     import torch
-    from taproot.hinting import SeedType, ImageResultType
+    from taproot.hinting import SeedType, ImageResultType, ImageType
 
 __all__ = [
     "WanVideoGeneration1B",
@@ -129,7 +129,6 @@ class WanVideoGeneration1B(Task):
         window_stride: Optional[int]=None,
         tile_horizontal: bool=False,
         tile_vertical: bool=False,
-        tile_vae: bool=False,
         tile_size: Optional[Union[str, int, Tuple[int, int]]]=None,
         tile_stride: Optional[Union[str, int, Tuple[int, int]]]=None,
         guidance_scale: float=5.0,
@@ -139,6 +138,8 @@ class WanVideoGeneration1B(Task):
         scheduler: Optional[DIFFUSERS_SCHEDULER_LITERAL]=None,
         output_format: VIDEO_OUTPUT_FORMAT_LITERAL="mp4",
         output_upload: bool=False,
+        num_zero_steps: int=0,
+        use_cfg_alpha: bool=False,
         loop: bool=False,
     ) -> ImageResultType:
         """
@@ -157,7 +158,7 @@ class WanVideoGeneration1B(Task):
         )
 
         if scheduler is not None:
-            pipeline.scheduler = get_diffusers_scheduler_by_name(
+            pipeline.scheduler = get_diffusers_scheduler_by_name( # type: ignore[assignment]
                 name=scheduler,
                 config=self.pretrained.scheduler.config
             )
@@ -189,9 +190,11 @@ class WanVideoGeneration1B(Task):
             loop=loop,
             tile_horizontal=tile_horizontal,
             tile_vertical=tile_vertical,
-            tile_vae=tile_vae,
+            tile_vae=self.enable_encode_tiling,
             generator=generator,
             cpu_offload=self.enable_model_offload,
+            num_zero_steps=num_zero_steps,
+            use_cfg_alpha=use_cfg_alpha
         )
         results = self.get_video_tensor_from_result(results)
         return self.get_output_from_video_result(

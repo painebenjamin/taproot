@@ -98,7 +98,7 @@ class ImageSimilarity(Task):
         right_gray = cv2.cvtColor(np.array(right), cv2.COLOR_BGR2GRAY)
 
         # Initiate ORB detector
-        orb = cv2.ORB_create()
+        orb = cv2.ORB_create() # type: ignore[attr-defined]
 
         # find the keypoints and descriptors with ORB
         left_kp, left_des = orb.detectAndCompute(left_gray, None)

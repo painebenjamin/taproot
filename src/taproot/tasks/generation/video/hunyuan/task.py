@@ -21,6 +21,11 @@ from .pretrained import (
     HunyuanVideoTransformer,
     HunyuanVideoTransformerInt8,
     HunyuanVideoTransformerNF4,
+    HunyuanVideoTransformerQ80,
+    HunyuanVideoTransformerQ6K,
+    HunyuanVideoTransformerQ5KM,
+    HunyuanVideoTransformerQ4KM,
+    HunyuanVideoTransformerQ3KM,
 )
 
 if TYPE_CHECKING:
@@ -31,7 +36,12 @@ if TYPE_CHECKING:
 __all__ = [
     "HunyuanVideoGeneration",
     "HunyuanVideoGenerationInt8",
-    "HunyuanVideoGenerationNF4"
+    "HunyuanVideoGenerationNF4",
+    "HunyuanVideoGenerationQ80",
+    "HunyuanVideoGenerationQ6K",
+    "HunyuanVideoGenerationQ5KM",
+    "HunyuanVideoGenerationQ4KM",
+    "HunyuanVideoGenerationQ3KM",
 ]
 
 class HunyuanVideoGeneration(DiffusersTextToVideoTask):
@@ -177,6 +187,71 @@ class HunyuanVideoGenerationNF4(HunyuanVideoGeneration):
         **{
             "transformer": HunyuanVideoTransformerNF4,
             "text_encoder": LlavaLlamaTextEncoderNF4,
+        }
+    }
+    static_gpu_memory_gb = 14.78 # Can load and execute model
+
+class HunyuanVideoGenerationQ80(HunyuanVideoGeneration):
+    """
+    Hunyuan Video Generation with Q80 quantization.
+    """
+    model = "hunyuan-q8-0"
+    pretrained_models = {
+        **HunyuanVideoGeneration.pretrained_models,
+        **{
+            "transformer": HunyuanVideoTransformerQ80,
+        }
+    }
+    static_gpu_memory_gb = 14.78 # Can load and execute model
+
+class HunyuanVideoGenerationQ6K(HunyuanVideoGeneration):
+    """
+    Hunyuan Video Generation with Q6K quantization.
+    """
+    model = "hunyuan-q6-k"
+    pretrained_models = {
+        **HunyuanVideoGeneration.pretrained_models,
+        **{
+            "transformer": HunyuanVideoTransformerQ6K,
+        }
+    }
+    static_gpu_memory_gb = 14.78 # Can load and execute model
+
+class HunyuanVideoGenerationQ5KM(HunyuanVideoGeneration):
+    """
+    Hunyuan Video Generation with Q5KM quantization.
+    """
+    model = "hunyuan-q5-k-m"
+    pretrained_models = {
+        **HunyuanVideoGeneration.pretrained_models,
+        **{
+            "transformer": HunyuanVideoTransformerQ5KM,
+        }
+    }
+    static_gpu_memory_gb = 14.78 # Can load and execute model
+
+class HunyuanVideoGenerationQ4KM(HunyuanVideoGeneration):
+    """
+    Hunyuan Video Generation with Q4KM quantization.
+    """
+    model = "hunyuan-q4-k-m"
+    pretrained_models = {
+        **HunyuanVideoGeneration.pretrained_models,
+        **{
+            "transformer": HunyuanVideoTransformerQ4KM,
+        }
+    }
+    static_gpu_memory_gb = 14.78 # Can load and execute model
+
+class HunyuanVideoGenerationQ3KM(HunyuanVideoGeneration):
+    """
+    Hunyuan Video Generation with Q3KM quantization.
+    """
+    model = "hunyuan-q3-k-m"
+    pretrained_models = {
+        **HunyuanVideoGeneration.pretrained_models,
+        **{
+            "transformer": HunyuanVideoTransformerQ3KM,
         }
     }
     static_gpu_memory_gb = 14.78 # Can load and execute model

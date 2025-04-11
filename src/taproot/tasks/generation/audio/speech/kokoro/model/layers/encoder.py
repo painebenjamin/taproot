@@ -218,9 +218,9 @@ class DurationEncoder(nn.Module):
         :param style: the style tensor [B, style]
         :return: the output tensor [B, T, chn]
         """
-        x = self.embedding(x.transpose(-1, -2)) * np.sqrt(self.model_dim)
+        x = self.embedding(x.transpose(-1, -2)) * np.sqrt(self.model_dim) # type: ignore[operator]
         style = style.expand(x.shape[0], x.shape[1], -1)
         x = torch.cat([x, style], dim=-1)
-        src = self.pos_encoder(x)
-        output = self.transformer_encoder(src).transpose(0, 1)
+        src = self.pos_encoder(x) # type: ignore[operator]
+        output = self.transformer_encoder(src).transpose(0, 1) # type: ignore[operator]
         return output # type: ignore[no-any-return]

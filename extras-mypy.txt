@@ -1,0 +1,6 @@
+mypy
+types-tabulate
+types-tqdm
+types-requests
+types-psutil
+types-pytz

@@ -79,7 +79,7 @@ def maybe_use_termcolor(
     """
     if color is not None and termcolor_is_available():
         import termcolor
-        return termcolor.colored(message, color, **kwargs) # type: ignore[arg-type]
+        return termcolor.colored(message, color, **kwargs)
     return message
 
 def green(

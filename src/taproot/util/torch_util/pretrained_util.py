@@ -387,12 +387,16 @@ class PretrainedModelMixin:
 
         # Normal torch module instantiation, either diffusers, transformers or native torch
 
+        quant_cls: Optional[Type[Union[HfQuantizer, DiffusersQuantizer]]] = None
         if cls.is_transformers_model():
             from transformers.quantizers import AutoHfQuantizer as TransformersAutoQuantizer # type: ignore[import-not-found,import-untyped,unused-ignore]
             quant_cls = TransformersAutoQuantizer
         else:
-            from diffusers.quantizers import DiffusersAutoQuantizer # type: ignore[attr-defined,import-not-found,unused-ignore]
-            quant_cls = DiffusersAutoQuantizer
+            try:
+                from diffusers.quantizers import DiffusersAutoQuantizer # type: ignore[attr-defined,import-not-found,unused-ignore]
+                quant_cls = DiffusersAutoQuantizer
+            except ImportError:
+                pass
 
         instantiate_context = no_init_weights() if cls.no_init_weights and not init_weights else nullcontext()
         strict = cls.use_strict and strict
@@ -416,6 +420,7 @@ class PretrainedModelMixin:
             quantization_config = cls.get_quantization_config(dtype=dtype)
             is_gguf_quant = False
             if quantization_config is not None:
+                assert quant_cls is not None, "Quantization class not implemented for this model."
                 logger.debug(f"Using quantization config {quantization_config}, {cls.pre_quantized=}")
 
                 if isinstance(quantization_config, dict):
@@ -432,19 +437,18 @@ class PretrainedModelMixin:
                             is_gguf_quant = True
                         else:
                             from_config_kwargs["pre_quantized"] = cls.pre_quantized
-                    quantizer = quant_cls.from_config(quantization_config, **from_config_kwargs)
+                    quantizer = quant_cls.from_config(quantization_config, **from_config_kwargs) # type: ignore[union-attr]
                     use_keep_in_fp32_modules = (getattr(load_target, "_keep_in_fp32_modules", None) is not None) and (
                         (dtype is not torch.float32) or hasattr(quantizer, "use_keep_in_fp32_modules")
                     )
             else:
                 quantizer = None
 
+            keep_in_fp32_modules: List[str] = []
             if quantizer is not None and not isinstance(quantizer, OptimumQuantoQuantizer):
                 dtype = quantizer.update_torch_dtype(dtype)
                 if use_keep_in_fp32_modules:
                     keep_in_fp32_modules = getattr(load_target, "_keep_in_fp32_modules", [])
-                else:
-                    keep_in_fp32_modules = []
 
                 for param in load_target.parameters():
                     # Disable gradient computation for all parameters
@@ -457,8 +461,6 @@ class PretrainedModelMixin:
                         device_map="auto",
                         keep_in_fp32_modules=keep_in_fp32_modules,
                     )
-            else:
-                keep_in_fp32_modules = []
 
             logger.debug(f"Loading model from {model_file} into {type(load_target).__name__} with device {device} and dtype {dtype}")
 
@@ -538,7 +540,7 @@ class PretrainedModelMixin:
                         )
 
             if hasattr(load_target, "tie_weights") and cls.tie_weights:
-                load_target.tie_weights()
+                load_target.tie_weights() # type: ignore[operator]
 
             if quantizer is not None:
                 logger.debug(f"Postprocessing model {type(load_target).__name__} with quantizer {type(quantizer).__name__}")
@@ -550,7 +552,7 @@ class PretrainedModelMixin:
 
             if device is not None and not isinstance(device, list) and quantizer is None and cls.load_on_device and cls.move_after_load and not is_cpu:
                 with log_duration(f"Moving {type(load_target).__name__} to {device}"):
-                    load_target.to(device, dtype=dtype)
+                    load_target.to(device, dtype=dtype) # type: ignore[arg-type]
 
             if cls.use_compile:
                 logger.debug(f"Enabling graph compilation for {type(load_target).__name__}")

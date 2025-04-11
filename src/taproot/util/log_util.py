@@ -251,7 +251,7 @@ class UnifiedLoggingContext:
                 from fruition.ext.log.handler import LogAggregateHandler # type: ignore[import-not-found,unused-ignore]
                 handler = LogAggregateHandler(url, **kwargs)
                 handler.setFormatter(Formatter(self.DEFAULT_FORMAT))
-                return handler
+                return handler # type: ignore[no-any-return]
             except ImportError:
                 warnings.warn("Fruition handler requested, but fruition not installed.")
         return None

@@ -328,8 +328,10 @@ class Video:
         """
         from .vision_util import ComputerVision
         from PIL.Image import Image
+
         last_frame: Optional[Image] = None
         features: Optional[List[Tuple[int, int]]] = None
+
         for frame in self.frames: # type: ignore[attr-defined]
             if last_frame is not None:
                 flow, features = ComputerVision.sparse_flow(

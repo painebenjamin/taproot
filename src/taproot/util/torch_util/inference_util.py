@@ -5,7 +5,7 @@ from typing import Tuple, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from torch import Tensor
 
-__all__ = ["apply_freeu"]
+__all__ = ["apply_freeu", "get_optimized_cfg_alpha"]
 
 def apply_freeu(
     resolution_idx: Optional[int],
@@ -74,3 +74,20 @@ def apply_freeu(
         res_hidden_states = rearrange(res_hidden_states, "(b f) c h w -> b c f h w", b=B, f=F)
 
     return hidden_states, res_hidden_states
+
+def get_optimized_cfg_alpha(positive: Tensor, negative: Tensor) -> Tensor:
+    """
+    Calculates an optimized scalar to correct for inaccuracies in
+    expected flow velocity estimation as proposed by Weiche Fan
+    et. al in CFG-Zero*
+
+    :param positive: Positive guidance embedding
+    :param negative: Negative guidance embedding
+    :return: Optimized scalar
+    :see https://arxiv.org/abs/2503.18886:
+    """
+    import torch
+    dot_product = torch.sum(positive * negative, dim=1, keepdim=True)
+    squared_norm = torch.sum(negative ** 2, dim=1, keepdim=True) + 1e-8
+    st_star = dot_product / squared_norm
+    return st_star

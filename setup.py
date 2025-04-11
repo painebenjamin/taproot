@@ -4,58 +4,32 @@ import sys
 
 from setuptools import find_packages, setup
 
-deps = [
-    "aioconsole",
-    "async-lru",
-    "click",
-    "dbgpu[fuzz]",
-    "docstring_parser",
-    "msgpack",
-    "omegaconf",
-    "packaging",
-    "pillow",
-    "psutil",
-    "pycryptodome",
-    "requests",
-]
+def read_requirements_file(file_name: str) -> List[str]:
+    """
+    Reads a requirements file and returns a list of dependencies.
+    """
+    with open(f"./{file_name}.txt", "r", encoding="utf-8") as file:
+        requirements = file.readlines()
 
-websocket_deps = [
-    "websockets",
-]
+    # Remove comments and empty lines
+    requirements: List[str] = []
+    for line in requirements:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        requirements.append(line)
+    return requirements
 
-http_deps = [
-    "uvicorn",
-    "aiohttp",
-    "aiodns",
-    "starlette",
-]
+deps = read_requirements_file("requirements")
 
-av_deps = [
-    "pyav",
-    "moviepy<2.0",
-]
-
-tool_deps = [
-    "pytz",
-    "duckduckgo_search",
-    "beautifulsoup4",
-]
-
-cli_deps = [
-    "tabulate",
-    "termcolor",
-    "tqdm"
-]
-
-uv_deps = [
-    "uvloop>=0.18",
-]
-
-jp_deps = [
-    "kanjize",
-    "sudachipy",
-    "sudachidict_full",
-]
+av_deps = read_requirements_file("extras-av")
+cli_deps = read_requirements_file("extras-cli")
+http_deps = read_requirements_file("extras-http")
+jp_deps = read_requirements_file("extras-jp")
+mypy_deps = read_requirements_file("extras-mypy")
+tool_deps = read_requirements_file("extras-tools")
+uv_deps = read_requirements_file("extras-uv")
+ws_deps = read_requirements_file("extras-ws")
 
 setup(
     name="taproot",
@@ -78,6 +52,7 @@ setup(
         "ws": websocket_deps,
         "cli": cli_deps,
         "http": http_deps,
+        "mypy": mypy_deps,
         "tools": tool_deps,
     },
     entry_points={

@@ -129,21 +129,21 @@ def get_diffusers_scheduler_by_name(
             return DPMSolverSinglestepScheduler(use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
         return DPMSolverSinglestepScheduler.from_config(config, use_karras_sigmas=use_karras_sigmas) # type: ignore[no-any-return]
     elif name in ["flow_match_dpmsolver_multistep", "flow_match_dpmsolver_multistep_dynamic"]:
-        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler
+        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler # type: ignore[attr-defined]
         if config is None:
-            return FlowMatchDPMSolverMultistepScheduler(
+            return FlowMatchDPMSolverMultistepScheduler( # type: ignore[no-any-return]
                 dynamic_shifting=use_dynamic_shifting,
                 algorithm_type="dpmsolver++"
-            ) # type: ignore[no-any-return]
+            )
         return FlowMatchDPMSolverMultistepScheduler.from_config( # type: ignore[no-any-return]
             config,
             dynamic_shifting=use_dynamic_shifting,
             algorithm_type="dpmsolver++"
         )
     elif name in ["flow_match_dpmsolver_sde_multistep", "flow_match_dpmsolver_sde_multistep_dynamic"]:
-        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler
+        from .schedulers.flow_match_dpmsolver import FlowMatchDPMSolverMultistepScheduler # type: ignore[attr-defined]
         if config is None:
-            return FlowMatchDPMSolverMultistepScheduler(
+            return FlowMatchDPMSolverMultistepScheduler( # type: ignore[no-any-return]
                 dynamic_shifting=use_dynamic_shifting,
                 algorithm_type="sde-dpmsolver++"
             )
@@ -252,7 +252,7 @@ def get_diffusers_scheduler_by_name(
             return UniPCMultistepScheduler() # type: ignore[no-any-return]
         return UniPCMultistepScheduler.from_config(config) # type: ignore[no-any-return]
     elif name in ["flow_match_unipc", "flow_match_unipc_dynamic"]:
-        from .schedulers.flow_match_unipc import FlowMatchUniPCMultistepScheduler
+        from .schedulers.flow_match_unipc import FlowMatchUniPCMultistepScheduler # type: ignore[attr-defined]
         if config is None:
             return FlowMatchUniPCMultistepScheduler(dynamic_shifting=use_dynamic_shifting) # type: ignore[no-any-return]
         return FlowMatchUniPCMultistepScheduler.from_config( # type: ignore[no-any-return]

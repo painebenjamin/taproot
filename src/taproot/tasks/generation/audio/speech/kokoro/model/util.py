@@ -33,7 +33,7 @@ def init_weights(
     :param std: The standard deviation of the normal distribution.
     """
     if "conv" in m.__class__.__name__.lower():
-        m.weight.data.normal_(mean, std)
+        m.weight.data.normal_(mean, std) # type: ignore[operator]
 
 def get_padding(
     kernel_size: int,

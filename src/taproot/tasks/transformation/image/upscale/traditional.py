@@ -63,17 +63,17 @@ class BasicSuperResolution(Task):
         """
         from PIL import Image
         if method == "nearest":
-            return Image.NEAREST
+            return Image.NEAREST # type: ignore[no-any-return,attr-defined]
         elif method == "box":
-            return Image.BOX
+            return Image.BOX # type: ignore[no-any-return,attr-defined]
         elif method == "bilinear":
-            return Image.BILINEAR
+            return Image.BILINEAR # type: ignore[no-any-return,attr-defined]
         elif method == "hamming":
-            return Image.HAMMING
+            return Image.HAMMING # type: ignore[no-any-return,attr-defined]
         elif method == "bicubic":
-            return Image.BICUBIC
+            return Image.BICUBIC # type: ignore[no-any-return,attr-defined]
         elif method == "lanczos":
-            return Image.LANCZOS
+            return Image.LANCZOS # type: ignore[no-any-return,attr-defined]
         else:
             raise ValueError(f"Unknown resampling method: {method}")
 

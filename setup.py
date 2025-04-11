@@ -2,6 +2,7 @@ import os
 import re
 import sys
 
+from typing import List
 from setuptools import find_packages, setup
 
 def read_requirements_file(file_name: str) -> List[str]:
@@ -33,7 +34,7 @@ ws_deps = read_requirements_file("extras-ws")
 
 setup(
     name="taproot",
-    version="0.3.8",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
+    version="0.3.9",  # expected format is one of x.y.z.dev0, or x.y.z.rc1 or x.y.z (no to dashes, yes to dots)
     description="Taproot is a seamlessly scalable AI/ML inference engine designed for deployment across hardware clusters with disparate capabilities.",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -49,7 +50,7 @@ setup(
         "av": av_deps,
         "uv": uv_deps,
         "jp": jp_deps,
-        "ws": websocket_deps,
+        "ws": ws_deps,
         "cli": cli_deps,
         "http": http_deps,
         "mypy": mypy_deps,

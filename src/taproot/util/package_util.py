@@ -573,7 +573,7 @@ def install_pip_packages(args: List[str]) -> int:
     ] + ["MarkupSafe==2.1.5"]
 
     if binary_is_available("uv"):
-        use_add = os.getenv("UV_USE_ADD", "1").lower()[:1] in ["1", "t", "y"]
+        use_add = os.getenv("UV_USE_ADD", "0").lower()[:1] in ["1", "t", "y"]
         if use_add:
             args = [
                 "--index" if arg == "--extra-index-url"

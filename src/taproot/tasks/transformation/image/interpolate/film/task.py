@@ -110,8 +110,6 @@ class FILMInterpolation(Task):
 
             del remains[step]
 
-        print(f"{t=}, {l=}, {b=}, {r=} {crop_start=} {crop_end=} {results[0].shape=}")
-
         return torch.cat([
             result.detach().cpu()[:, :, t:b, l:r] # type: ignore[misc]
             for result in results

@@ -45,18 +45,19 @@ class DiffusersTextToVideoTask(DiffusersPipelineTask):
         Required packages.
         """
         return {
-            "pil": PILLOW_VERSION_SPEC,
-            "torch": TORCH_VERSION_SPEC,
-            "numpy": NUMPY_VERSION_SPEC,
+            "accelerate": ACCELERATE_VERSION_SPEC,
+            "compel": COMPEL_VERSION_SPEC,
             "diffusers": DIFFUSERS_VERSION_SPEC,
+            "einops": EINOPS_VERSION_SPEC,
+            "numpy": NUMPY_VERSION_SPEC,
+            "peft": PEFT_VERSION_SPEC,
+            "pil": PILLOW_VERSION_SPEC,
+            "safetensors": SAFETENSORS_VERSION_SPEC,
+            "sentencepiece": SENTENCEPIECE_VERSION_SPEC,
+            "sklearn": SKLEARN_VERSION_SPEC,
+            "torch": TORCH_VERSION_SPEC,
             "torchvision": TORCHVISION_VERSION_SPEC,
             "transformers": TRANSFORMERS_VERSION_SPEC,
-            "safetensors": SAFETENSORS_VERSION_SPEC,
-            "accelerate": ACCELERATE_VERSION_SPEC,
-            "sklearn": SKLEARN_VERSION_SPEC,
-            "sentencepiece": SENTENCEPIECE_VERSION_SPEC,
-            "compel": COMPEL_VERSION_SPEC,
-            "peft": PEFT_VERSION_SPEC,
         }
 
     """Classmethod stubs"""

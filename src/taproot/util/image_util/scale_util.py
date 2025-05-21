@@ -22,7 +22,8 @@ def fit_image(
     fit: Optional[IMAGE_FIT_LITERAL] = None,
     anchor: Optional[IMAGE_ANCHOR_LITERAL] = None,
     offset_left: Optional[int] = None,
-    offset_top: Optional[int] = None
+    offset_top: Optional[int] = None,
+    background: Optional[Union[int, Tuple[int], Tuple[int, int, int], Tuple[int, int, int, int]]] = None,
 ) -> Image: ...
 
 @overload
@@ -33,7 +34,8 @@ def fit_image(
     fit: Optional[IMAGE_FIT_LITERAL] = None,
     anchor: Optional[IMAGE_ANCHOR_LITERAL] = None,
     offset_left: Optional[int] = None,
-    offset_top: Optional[int] = None
+    offset_top: Optional[int] = None,
+    background: Optional[Union[int, Tuple[int], Tuple[int, int, int], Tuple[int, int, int, int]]] = None,
 ) -> List[Image]: ...
 
 def fit_image(
@@ -43,7 +45,8 @@ def fit_image(
     fit: Optional[IMAGE_FIT_LITERAL] = None,
     anchor: Optional[IMAGE_ANCHOR_LITERAL] = None,
     offset_left: Optional[int] = None,
-    offset_top: Optional[int] = None
+    offset_top: Optional[int] = None,
+    background: Optional[Union[int, Tuple[int], Tuple[int, int, int], Tuple[int, int, int, int]]] = None,
 ) -> Union[Image, List[Image]]:
     """
     Given an image of unknown size, make it a known size with optional fit parameters.
@@ -65,9 +68,21 @@ def fit_image(
                 anchor=anchor,
                 offset_left=offset_left,
                 offset_top=offset_top,
+                background_color=background_color,
             )
             for img in image
         ]
+
+    background_color = (0, 0, 0, 0)
+    if background is not None:
+        if isinstance(background, int):
+            background_color = (background, background, background, 255)
+        elif len(background) == 3:
+            background_color = (background[0], background[1], background, 255)
+        elif len(background) == 4:
+            background_color = background
+        else:
+            raise ValueError(f"background must 1 integer or a tuple of 3 or 4 integers, got {background}")
 
     from PIL import Image
 
@@ -89,7 +104,7 @@ def fit_image(
             elif left_part == "right":
                 left = width - image_width
 
-        blank_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        blank_image = Image.new("RGBA", (width, height), background_color)
 
         if offset_top is not None:
             top += offset_top
@@ -100,7 +115,7 @@ def fit_image(
         else:
             blank_image.paste(image, (left, top))
 
-        return blank_image
+        return blank_image.convert(image.mode)
 
     elif fit == "contain":
         image_width, image_height = image.size
@@ -133,13 +148,13 @@ def fit_image(
         if offset_left is not None:
             left += offset_left
 
-        blank_image = Image.new("RGBA", (width, height))
+        blank_image = Image.new("RGBA", (width, height), background_color)
         if input_image.mode == "RGBA":
             blank_image.paste(input_image, (left, top), input_image)
         else:
             blank_image.paste(input_image, (left, top))
 
-        return blank_image
+        return blank_image.convert(image.mode)
 
     elif fit == "cover":
         image_width, image_height = image.size
@@ -174,16 +189,16 @@ def fit_image(
         if offset_left is not None:
             left += offset_left
 
-        blank_image = Image.new("RGBA", (width, height))
+        blank_image = Image.new("RGBA", (width, height), background_color)
         if input_image.mode == "RGBA":
             blank_image.paste(input_image, (left, top), input_image)
         else:
             blank_image.paste(input_image, (left, top))
 
-        return blank_image
+        return blank_image.convert(image.mode)
 
     elif fit == "stretch":
-        return image.resize((width, height)).convert("RGBA")
+        return image.resize((width, height))
 
     else:
         raise ValueError(f"Unknown fit {fit}")

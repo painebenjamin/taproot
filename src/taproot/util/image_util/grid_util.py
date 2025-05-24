@@ -173,7 +173,7 @@ class GridMaker:
                 height=self.image_height,
                 fit=self.image_fit,
                 anchor=self.image_anchor,
-                background_color=self.background_color
+                background=self.background_color
             )
 
             for j, image in enumerate(images):

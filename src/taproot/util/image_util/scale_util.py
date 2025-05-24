@@ -68,7 +68,7 @@ def fit_image(
                 anchor=anchor,
                 offset_left=offset_left,
                 offset_top=offset_top,
-                background_color=background_color,
+                background=background,
             )
             for img in image
         ]
@@ -78,7 +78,7 @@ def fit_image(
         if isinstance(background, int):
             background_color = (background, background, background, 255)
         elif len(background) == 3:
-            background_color = (background[0], background[1], background, 255)
+            background_color = (background[0], background[1], background[2], 255)
         elif len(background) == 4:
             background_color = background
         else:

@@ -229,6 +229,11 @@ class Wholebody:
         self.pose_estimator.to(device, dtype=dtype)
         return self
 
+    def compile(self, *args, **kwargs):
+        self.detector.compile(*args, **kwargs)
+        self.pose_estimator.compile(*args, **kwargs)
+        return self
+
     def __call__(self, oriImg, *args, **kwargs):
         # predict bbox
         det_result = inference_detector(self.detector, oriImg)

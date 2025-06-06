@@ -69,6 +69,10 @@ class DWPoseDetector:
         self.pose_estimation.to(device, dtype=dtype)
         return self
 
+    def compile(self, **kwargs):
+        self.pose_estimation.compile(**kwargs)
+        return
+
     def __call__(
         self,
         input_image,

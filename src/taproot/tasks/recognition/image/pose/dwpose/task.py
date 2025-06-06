@@ -99,12 +99,20 @@ class DWPoseDetection(Task):
         """
         Load the model
         """
+        from PIL import Image
         from .helper import DWPoseDetector # type: ignore[attr-defined]
         self.detector = DWPoseDetector(
             det_ckpt=self.detection_model_file,
             pose_ckpt=self.estimation_model_file,
         )
         self.detector.to(self.device, dtype=self.dtype)
+        self.detector.compile()
+
+        # Run various sizes through the model to warm it up
+        for width in [64, 128, 192, 256, 384, 512]:
+            for height in [64, 128, 192, 256, 384, 512]:
+                image = Image.new("RGB", (width, height), (255, 255, 255))
+                self(image=image)
 
     def __call__( # type: ignore[override]
         self,
